@@ -1,0 +1,3954 @@
+---
+title: Rales Prediction - Predicting Rales Bedtime/Awakening Cortisol with DEGs (p<0.005)
+  + Rales CpGs (p<0.01) by Rales (p<0.005) DMR Criteria
+author: "Yian (Angela) Lin"
+date: "May 10th, 2019"
+output:
+  pdf_document:
+    toc: yes
+    toc_depth: '5'
+  word_document:
+    toc: yes
+    toc_depth: '5'
+  html_document:
+    highlight: tango
+    number_sections: no
+    theme: cosmo
+    toc: yes
+    toc_depth: 5
+    toc_float: yes
+fig_width: 5
+fig_height: 5
+---
+
+#### Setup
+
+Read in the file with methylseq data and phenotype variables:
+```{r, message = F, warning = F}
+# library(data.table)
+# Read in Rales
+# d_d <- fread("PredMatrix_CpG_rales_20181220.csv", sep = ",")
+# d_d <- as.data.frame(d_d)
+# d_d$meanNCortB <- d_d$meanNCortB/10
+# d_d$meanNCortW <- d_d$meanNCortW/10
+# d_save <- d_d
+
+# Read in Cushing 
+# d_cushing <- fread("PredMatrix_CpG_cushing_20181220.csv", sep = ",")
+# d_cushing <- as.data.frame(d_cushing)
+```
+
+Choose Rales CpG predictors:
+```{r, message = F, warning = F}
+library(tidyverse)
+library(tidyselect)
+
+# DMR_top_file <- fread("rales_cushing_criteria_DMR_20190228.csv", sep = ",")
+# CpG_set_rales <- as.data.frame(matrix(rep(NA, 36), ncol = 2))
+# colnames(CpG_set_rales) <- c("minCpG", "minAdjPval")
+# DMR_chr <- DMR_top_file$chr
+# DMR_start <- DMR_top_file$start
+# DMR_end <- DMR_top_file$end
+
+# CpG in Rales
+# Rales_unflagged_file <- fread("singlecpg.rales.unflagged_20181104.csv", sep = ",")
+
+# Excluding flagged cpgs in Rales, most significant
+
+# for (i in 1:nrow(DMR_top_file)) {
+#   CpG_min <- Rales_unflagged_file %>%
+#     # CpG in DMR
+#     filter(chr == DMR_chr[i]) %>%
+#     filter(pos >= DMR_start[i]) %>%
+#     filter(pos <= DMR_end[i]) %>%
+#     # for each CpG 
+#     rowwise() %>%
+#     # find the min p.adj
+#     mutate(pval.adj = min(p.night.adj, p.night.tert.adj,
+#                           p.wake.adj, p.wake.tert.adj,
+#                           na.rm = T)) %>%
+#     ungroup() %>%
+#     # Smallest pval.adj
+#     filter(pval.adj == min(pval.adj))
+#   
+#   CpG_min <- as.data.frame(CpG_min)
+#   # CpG predictor
+#   if (nrow(CpG_min) != 0) {
+#     CpG_set_rales[i, 1] <- CpG_min[2]
+#     # CpG pval.adj
+#     CpG_set_rales[i, 2] <- CpG_min[52]
+#   }
+#   if (nrow(CpG_min) > 1) {
+#     print(i)
+#   }
+# }
+
+# Check uniqueness
+# CpG_set_rales <- as.data.frame(distinct(CpG_set_rales, minCpG, minAdjPval))
+# dim(CpG_set_rales)
+
+# Check Rales CpGs flagness to common SNPs
+# CpG_file <- fread("cushing.singleCpG.annotated_in_SNP_20181117.csv", sep = ",")
+# CpG_file[CpG_file$CpG %in% CpG_set_rales$minCpG, c("CpG", "inSNP")]
+
+# Rales CpGs for bedtime and awakening
+load("CpG_set_rales.RData")
+CpG_set1 <- CpG_set_rales
+CpG_set1 <- CpG_set1[c(6:14), ]
+```
+
+Read in the file with expression data and phenotype variables:
+```{r, message = F, warning = F}
+library(data.table)
+Counts <- fread("031318_cpm_Rales_RNA.csv", sep = ",")
+Counts <- as.data.frame(Counts)
+t_Counts <- data.frame(t(Counts[, 2:ncol(Counts)]))
+colnames(t_Counts) <- Counts[, 1]
+# Removing outlier "12-0087"
+t_Counts <- t_Counts[-56, ]
+
+
+d <- fread("rales-mkanalysis-summarygenecounts_utf8.csv", sep = ",")
+d_d <- d[d$id != "12-0085", ]
+d_d <- d_d[d_d$id != "12-0091", ]
+# Removing outlier "12-0087"
+d_d <- d_d[d_d$id != "12-0087", ]
+d_d <- as.data.frame(d_d)
+```
+
+Choose Rales Gene Predictors:
+```{r, message = F, warning = F}
+# library(tidyverse)
+# library(tidyselect)
+
+# Genes
+cortBcont <- fread("052518_cortB_cont_results.csv", sep = ",")
+cortBcont$pheno <- "cortBcont"
+cortBcont$phenoCort <- "cortB"
+cortBdi <- fread("052518_cortB_dich_results.csv", sep = ",")
+cortBdi$pheno <- "cortBdi"
+cortBdi$phenoCort <- "cortB"
+
+cortWcont <- fread("052518_cortW_cont_results.csv", sep = ",")
+cortWcont$pheno <- "cortWcont"
+cortWcont$phenoCort <- "cortW"
+cortWdi <- fread("052518_cortW_dich_results.csv", sep = ",")
+cortWdi$pheno <- "cortWdi"
+cortWdi$phenoCort <- "cortW"
+
+cort <- bind_rows(cortBcont, cortBdi, cortWcont, cortWdi)
+# cortTop001 <- cort[cort$P.Value < 0.01, ]
+# cortTop001Gene <- distinct(cortTop001, V1, phenoCort, .keep_all = T)
+# cortTop001GeneB <- cortTop001Gene %>%
+#   filter(phenoCort == "cortB")
+# 
+# cortTop001GeneW <- cortTop001Gene %>%
+#   filter(phenoCort == "cortW")
+# 
+# Top001 <- intersect(cortTop001GeneB$V1, cortTop001GeneW$V1)
+# Top001
+
+cortTop0005 <- cort[cort$P.Value < 0.005, ]
+cortTop0005Gene <- distinct(cortTop0005, V1, phenoCort, .keep_all = T)
+cortTop0005GeneB <- cortTop0005Gene %>%
+  filter(phenoCort == "cortB")
+
+cortTop0005GeneW <- cortTop0005Gene %>%
+  filter(phenoCort == "cortW")
+
+Top0005 <- intersect(cortTop0005GeneB$V1, cortTop0005GeneW$V1)
+
+# plot_set1 <- cbind(d_d[c("id", "sex", "round", "age",
+#                          "meanNCortB", "meanNCortW")],
+#                    t_Counts[colnames(t_Counts) %in% Top001])
+
+plot_set2 <- cbind(d_d[c("id", "sex", "round", "age",
+                         "meanNCortB", "meanNCortW")],
+                   t_Counts[colnames(t_Counts) %in% Top0005])
+```
+
+# CpG Predictors
+
+```{r, message = F, warning = F}
+# Setup
+# plot_set1 <- cbind(d_d[c("id", "sex", "round", "age", 
+#                    "meanNCortB", "meanNCortW")], 
+#                    d_d[colnames(d_d) %in% CpG_set1$minCpG])
+# dim(plot_set1)
+load("plot_set1_20190315.RData")
+dim(plot_set1)
+
+# List of CpGs with adjusted p-values
+plot_cpg <- CpG_set1[CpG_set1$minCpG %in% colnames(plot_set1), ][order(CpG_set1$minAdjPval), ]
+print(plot_cpg)
+plot_cpg <- plot_cpg[plot_cpg$minAdjPval < 0.01, ]
+print(plot_cpg)
+# nrow(CpG_set1[CpG_set1$minCpG %in% colnames(plot_set1), ])
+plot_set1 <- cbind(plot_set1[, 1:6], plot_set1[plot_cpg$minCpG])
+```
+
+# DEG Predictors
+```{r}
+print(Top0005)
+```
+
+# CpG Predictors Viewed in Cushing: Boxplots
+
+```{r, message = F, warning = F}
+# Setup
+# boxplot_set1 <- cbind(d_cushing["group"], 
+#                       d_cushing[colnames(d_cushing) %in% CpG_set1$minCpG])
+# boxplot_set1$group <- ifelse(boxplot_set1$group == 1, "case", "control")
+# dim(boxplot_set1)
+load("boxplot_set1_20190315.RData")
+dim(boxplot_set1)
+
+# Boxplots
+library(ggplot2)
+for (i in 2:ncol(boxplot_set1)) {
+  bplot <- ggplot(boxplot_set1,
+                  aes(y = boxplot_set1[, i], x = group, color = group)) +
+    geom_boxplot() +
+    theme_classic() +
+    labs(title = colnames(boxplot_set1)[i], 
+         x = "Group", 
+         y = "Methylation Level")
+  print(bplot)
+}
+```
+
+# Bedtime Cortisol Prediction Models
+
+## CpG Predictors: Bedtime Cortisol Scatterplots
+
+```{r, message = F, warning = F}
+# Scatterplots 
+library(gridExtra)
+library(ggpubr)
+for (i in 7:ncol(plot_set1)) {
+  r2B = format(summary(lm(plot_set1[, i] ~ meanNCortB, 
+                         plot_set1))$r.squared,      
+              digits = 3)
+  
+  ggB <- ggplot(plot_set1,
+                aes(y = plot_set1[, i], x = meanNCortB)) +
+    geom_smooth(method = "lm") +
+    geom_point() + 
+    coord_fixed() +
+    theme_classic() +
+    labs(title = bquote(italic(r)^2 == .(r2B)),  
+         x = "Mean Bedtime Cortisol", 
+         y = "Methylation Level") 
+  
+    grid.arrange(annotate_figure(ggB, ggplot(alpha = 0), ggplot(alpha = 0),
+                                 top = colnames(plot_set1)[i]),
+                 ncol = 3)
+}
+```
+
+## DEG Predictors: Bedtime Cortisol Scatterplots
+```{r, message = F, warning = F}
+# Scatterplots 
+for (i in 7:ncol(plot_set2)) {
+  r2B = format(summary(lm(plot_set2[, i] ~ meanNCortB, 
+                         plot_set2))$r.squared,      
+              digits = 3)
+  
+  ggB <- ggplot(plot_set2,
+                aes(y = plot_set2[, i], x = meanNCortB)) +
+    geom_smooth(method = "lm") +
+    geom_point() + 
+    # coord_fixed() +
+    theme_classic() +
+    labs(title = bquote(italic(r)^2 == .(r2B)),  
+         x = "Mean Bedtime Cortisol", 
+         y = "Expression Level") 
+  
+    grid.arrange(annotate_figure(ggB, ggplot(alpha = 0), ggplot(alpha = 0),
+                                 top = colnames(plot_set2)[i]),
+                 ncol = 3)
+}
+```
+
+## Bedtime Cortisol Predictions: 
+
+### Using CpG predictors
+
+Prepare the variables:
+```{r, message = F, warning = F}
+# Read in the data and prepare for cross validation
+d_d <- plot_set1
+d_d$sex <- as.factor(d_d$sex)
+d_d$round <- as.factor(d_d$round)
+d_d$age <- as.numeric(d_d$age)
+d_d$cv_group <- 1:length(d_d$id)
+dim(d_d)
+```
+
+#### Leave-One-Out 
+
+##### Bedtime Cortisol (Continuous):
+
+```{r, message = F, warning = F}
+d_a <- d_d %>%
+  dplyr::select(-one_of(c("id", "meanNCortW")))
+
+# Prepare for cv
+cv_results1 <- array(0,c(0,2))
+colnames(cv_results1) <- c("Observed","Predicted1")
+cv_results2 <- array(0,c(0,2))
+colnames(cv_results2) <- c("Observed","Predicted2")
+
+# Begin cv
+for (i in 1:length(d_a$cv_group))
+{
+  # allocate sample to the test and training sets
+  data_train <- d_a[d_a$cv_group != i, ]
+  data_test <- d_a[d_a$cv_group == i, ]
+  # multiple linear regression
+  fit1 <- glm(meanNCortB ~ sex + age + round, data = data_train)
+  fit2 <- glm(meanNCortB ~ .-cv_group, data = data_train)
+  
+  # predict meanNCortB on test set (cv_group == i)
+  cv_results1 <- rbind(cv_results1,
+                       data.frame(Observed = data_test$meanNCortB,
+                                  Predicted1 = predict(fit1, data_test)))
+  cv_results2 <- rbind(cv_results2,
+                       data.frame(Observed = data_test$meanNCortB,
+                                  Predicted2 = predict(fit2, data_test)))
+}
+
+# Graph: predicted vs. observed
+# Model1
+r2 <- format(summary(lm(Predicted1 ~ Observed,
+                       cv_results1))$r.squared,
+            digits = 3)
+p <- ggplot(data = cv_results1,
+            aes(y = Predicted1,
+                x = Observed))
+p + geom_smooth(method = "lm") +
+  geom_point() + 
+  coord_fixed() +
+  theme_classic() +
+  labs(title = "Bedtime Cortisol (Model 1)", 
+       subtitle = bquote(italic(r)^2 == .(r2)),
+         x = "Observed Values", 
+         y = "Predicted Values") 
+
+# Model2
+r2 <- format(summary(lm(Predicted2 ~ Observed,
+                       cv_results2))$r.squared,
+            digits = 3)
+q <- ggplot(data = cv_results2,
+            aes(y = Predicted2,
+                x = Observed))
+q + geom_smooth(method = "lm") +
+  geom_point() + 
+  coord_fixed() +   
+  theme_classic() +
+  labs(title = "Bedtime Cortisol (Model 2)", 
+       subtitle = bquote(italic(r)^2 == .(r2)),
+         x = "Observed Values", 
+         y = "Predicted Values")
+```
+
+##### Bedtime Cortisol (Dichotomous, Logistic Regression):
+
+```{r, message = F, warning = F}
+d_aa <- d_a
+d_aa$meanNCortB <- factor(d_aa$meanNCortB >= median(d_aa$meanNCortB))
+
+cv_results1 <- array(0,c(0,2))
+colnames(cv_results1) <- c("Observed","Predicted1")
+cv_results2 <- array(0,c(0,2))
+colnames(cv_results2) <- c("Observed","Predicted2")
+
+# Begin cv
+for (i in 1:length(d_aa$cv_group))
+{
+  # allocate sample to the test and training sets
+  data_train <- d_aa[d_aa$cv_group != i, ]
+  data_test <- d_aa[d_aa$cv_group == i, ]
+  # logistic regression
+  fit1 <- glm(meanNCortB ~ sex + age + round, data = data_train, 
+              family = "binomial")
+  fit2 <- glm(meanNCortB ~ .-cv_group, data = data_train,
+              family = "binomial")
+  
+  # predict meanNCortB on test set (cv_group == i)
+  cv_results1 <- rbind(cv_results1,
+                       data.frame(Observed = data_test$meanNCortB,
+                                  Predicted1 = predict(fit1, data_test, 
+                                                       type = "response")))
+  cv_results2 <- rbind(cv_results2,
+                       data.frame(Observed = data_test$meanNCortB,
+                                  Predicted2 = predict(fit2, data_test,
+                                                       type = "response")))
+}
+
+# ROC
+library(ROCR)
+# Model1
+pred1 <- prediction(cv_results1$Predicted1, cv_results1$Observed)
+perf1 <- performance(pred1, "tpr", "fpr" )
+plot(perf1, colorize = T, main = "Bedtime Cortisol (Model 1 Logistic Regression)")
+# AUC
+performance(pred1, "auc")@y.values
+# opt cut
+opt.cut <- function(perf, pred) {
+    cut.ind = mapply(FUN = function(x, y, p) {
+        d = (x - 0)^2 + (y-1)^2
+        ind = which(d == min(d))
+        c(sensitivity = y[[ind]], specificity = 1-x[[ind]], cutoff = p[[ind]])
+    }, perf@x.values, perf@y.values, pred@cutoffs)
+}
+print(opt.cut(perf1, pred1))
+
+# Model2
+pred2 <- prediction(cv_results2$Predicted2, cv_results2$Observed)
+perf2 <- performance(pred2, "tpr", "fpr" )
+plot(perf2, colorize = T, main = "Bedtime Cortisol (Model 2 Logistic Regression)")
+# AUC
+performance(pred2, "auc")@y.values
+# opt cut
+print(opt.cut(perf2, pred2))
+```
+
+##### Bedtime Cortisol (Dichotomous, Random Forest):
+
+```{r, message = F, warning = F}
+d_aa <- d_a
+d_aa$meanNCortB <- factor(d_aa$meanNCortB >= median(d_aa$meanNCortB))
+
+cv_results1 <- array(0,c(0,2))
+colnames(cv_results1) <- c("Observed","Predicted1")
+cv_results2 <- array(0,c(0,2))
+colnames(cv_results2) <- c("Observed","Predicted2")
+
+# Begin cv
+library(randomForest)
+set.seed(2)
+for (i in 1:length(d_aa$cv_group))
+{
+  # allocate sample to the test and training sets
+  data_train <- d_aa[d_aa$cv_group != i, ]
+  data_test <- d_aa[d_aa$cv_group == i, ]
+  # logistic regression
+  fit1 <- randomForest(meanNCortB ~ sex + age + round, data = data_train,
+                       ntree = 500, mtry = 2)
+  fit2 <- randomForest(meanNCortB ~ .-cv_group, data = data_train, 
+                       ntree = 500, mtry = 4)
+  
+  # predict meanNCortB on test set (cv_group == i)
+  cv_results1 <- rbind(cv_results1,
+                       data.frame(Observed = data_test$meanNCortB,
+                                  Predicted1 = predict(fit1, data_test, 
+                                                       type = "prob")[, 2]))
+  cv_results2 <- rbind(cv_results2,
+                       data.frame(Observed = data_test$meanNCortB,
+                                  Predicted2 = predict(fit2, data_test,
+                                                       type = "prob")[, 2]))
+}
+
+# Classification error rate
+# mean(cv_results1$Observed == cv_results1$Predicted1)
+# mean(cv_results2$Observed == cv_results2$Predicted2)
+
+# ROC
+# Model1
+pred1 <- prediction(cv_results1$Predicted1, cv_results1$Observed)
+perf1 <- performance(pred1, "tpr", "fpr" )
+plot(perf1, colorize = T, main = "Bedtime Cortisol (Model 1 Random Forest)")
+# AUC
+performance(pred1, "auc")@y.values
+# opt cut\
+print(opt.cut(perf1, pred1))
+
+# Model2
+pred2 <- prediction(cv_results2$Predicted2, cv_results2$Observed)
+perf2 <- performance(pred2, "tpr", "fpr" )
+plot(perf2, colorize = T, main = "Bedtime Cortisol (Model 2 Random Forest)")
+# AUC
+performance(pred2, "auc")@y.values
+# opt cut
+print(opt.cut(perf2, pred2))
+```
+
+#### All Samples (n = 77)
+
+##### Bedtime Cortisol (Continuous):
+
+```{r, message = F, warning = F}
+d_a <- d_d %>%
+  dplyr::select(-one_of(c("id", "cv_group", "meanNCortW")))
+
+# Prepare for prediction
+results1 <- array(0,c(0,2))
+colnames(results1) <- c("Observed","Predicted1")
+results2 <- array(0,c(0,2))
+colnames(results2) <- c("Observed","Predicted2")
+
+# Prediction
+  # multiple linear regression
+  fit1 <- glm(meanNCortB ~ sex + age + round, data = d_a)
+  fit2 <- glm(meanNCortB ~ . , data = d_a)
+  
+  # predict meanNCortB 
+  results1 <- rbind(results1,
+                    data.frame(Observed = d_a$meanNCortB,
+                               Predicted1 = predict(fit1, d_a)))
+  results2 <- rbind(results2,
+                    data.frame(Observed = d_a$meanNCortB,
+                               Predicted2 = predict(fit2, d_a)))
+
+# Graph: predicted vs. observed
+
+# Model1
+r2 <- format(summary(lm(Predicted1 ~ Observed,
+                       results1))$r.squared,
+            digits = 3)
+p <- ggplot(data = results1,
+            aes(y = Predicted1,
+                x = Observed))
+p + geom_smooth(method = "lm") +
+  geom_point() + 
+  coord_fixed() +
+  theme_classic() +
+  labs(title = "Bedtime Cortisol (Model 1)", 
+       subtitle = bquote(italic(r)^2 == .(r2)),
+         x = "Observed Values", 
+         y = "Predicted Values") 
+
+# Model2
+r2 <- format(summary(lm(Predicted2 ~ Observed,
+                       results2))$r.squared,
+            digits = 3)
+q <- ggplot(data = results2,
+            aes(y = Predicted2,
+                x = Observed))
+q + geom_smooth(method = "lm") +
+  geom_point() + 
+  coord_fixed() +   
+  theme_classic() +
+  labs(title = "Bedtime Cortisol (Model 2)", 
+       subtitle = bquote(italic(r)^2 == .(r2)),
+         x = "Observed Values", 
+         y = "Predicted Values")
+```
+
+##### Bedtime Cortisol (Dichotomous, Logistic Regression):
+
+```{r, message = F, warning = F}
+d_aa <- d_a
+d_aa$meanNCortB <- factor(d_aa$meanNCortB >= median(d_aa$meanNCortB))
+
+results1 <- array(0,c(0,2))
+colnames(results1) <- c("Observed","Predicted1")
+results2 <- array(0,c(0,2))
+colnames(results2) <- c("Observed","Predicted2")
+
+# Begin prediction
+  # logistic regression
+  fit1 <- glm(meanNCortB ~ sex + age + round, data = d_aa, 
+              family = "binomial")
+  fit2 <- glm(meanNCortB ~ . , data = d_aa,
+              family = "binomial")
+  
+  # predict meanNCortB
+  results1 <- rbind(results1,
+                    data.frame(Observed = d_aa$meanNCortB,
+                               Predicted1 = predict(fit1, d_aa, 
+                                                    type = "response")))
+  results2 <- rbind(results2,
+                    data.frame(Observed = d_aa$meanNCortB,
+                               Predicted2 = predict(fit2, d_aa,
+                                                    type = "response")))
+
+# ROC
+
+# Model1
+pred1 <- prediction(results1$Predicted1, results1$Observed)
+perf1 <- performance(pred1, "tpr", "fpr" )
+plot(perf1, colorize = T, main = "Bedtime Cortisol (Model 1 Logistic Regression)")
+# AUC
+performance(pred1, "auc")@y.values
+# opt cut
+print(opt.cut(perf1, pred1))
+
+# Model2
+pred2 <- prediction(results2$Predicted2, results2$Observed)
+perf2 <- performance(pred2, "tpr", "fpr" )
+plot(perf2, colorize = T, main = "Bedtime Cortisol (Model 2 Logistic Regression)")
+# AUC
+performance(pred2, "auc")@y.values
+# opt cut
+print(opt.cut(perf2, pred2))
+```
+
+##### Bedtime Cortisol (Dichotomous, Random Forest):
+
+```{r, message = F, warning = F}
+d_aa <- d_a
+d_aa$meanNCortB <- factor(d_aa$meanNCortB >= median(d_aa$meanNCortB))
+
+results1 <- array(0,c(0,2))
+colnames(results1) <- c("Observed","Predicted1")
+results2 <- array(0,c(0,2))
+colnames(results2) <- c("Observed","Predicted2")
+
+# Begin prediction
+  # random forest
+set.seed(2)
+  fit1 <- randomForest(meanNCortB ~ sex + age + round, data = d_aa, 
+                       ntree = 500, mtry = 2, importance = T)
+  fit2 <- randomForest(meanNCortB ~ . , data = d_aa, 
+                       ntree = 500, mtry = 4, importance = T)
+  
+  # predict meanNCortB on test set
+  results1 <- rbind(results1,
+                    data.frame(Observed = d_aa$meanNCortB,
+                               Predicted1 = predict(fit1, d_aa, 
+                                                    type = "prob")[, 2]))
+  results2 <- rbind(results2,
+                    data.frame(Observed = d_aa$meanNCortB,
+                               Predicted2 = predict(fit2, d_aa,
+                                                    type = "prob")[, 2]))
+  
+varImpPlot(fit1, main = "Bedtime Cortisol (Model 1 Random Forest)")
+varImpPlot(fit2, main = "Bedtime Cortisol (Model 2 Random Forest)")
+
+# Classification error rate
+# mean(results1$Observed == results1$Predicted1)
+# mean(results2$Observed == results2$Predicted2)
+
+# ROC
+
+# Model1
+pred1 <- prediction(results1$Predicted1, results1$Observed)
+perf1 <- performance(pred1, "tpr", "fpr" )
+plot(perf1, colorize = T, main = "Bedtime Cortisol (Model 1 Random Forest)")
+# AUC
+performance(pred1, "auc")@y.values
+# opt cut
+print(opt.cut(perf1, pred1))
+
+# Model2
+pred2 <- prediction(results2$Predicted2, results2$Observed)
+perf2 <- performance(pred2, "tpr", "fpr" )
+plot(perf2, colorize = T, main = "Bedtime Cortisol (Model 2 Random Forest)")
+# AUC
+performance(pred2, "auc")@y.values
+# opt cut
+print(opt.cut(perf2, pred2))
+```
+
+### Using DEG predictors
+
+Prepare the variables:
+```{r, message = F, warning = F}
+# Read in the data and prepare for cross validation
+d_d <- plot_set2
+d_d$sex <- as.factor(d_d$sex)
+d_d$round <- as.factor(d_d$round)
+d_d$age <- as.numeric(d_d$age)
+d_d$cv_group <- 1:length(d_d$id)
+dim(d_d)
+```
+
+#### Leave-One-Out 
+
+##### Bedtime Cortisol (Continuous):
+
+```{r, message = F, warning = F}
+d_a <- d_d %>%
+  dplyr::select(-one_of(c("id", "meanNCortW")))
+
+# Prepare for cv
+cv_results1 <- array(0,c(0,2))
+colnames(cv_results1) <- c("Observed","Predicted1")
+cv_results2 <- array(0,c(0,2))
+colnames(cv_results2) <- c("Observed","Predicted2")
+
+# Begin cv
+for (i in 1:length(d_a$cv_group))
+{
+  # allocate sample to the test and training sets
+  data_train <- d_a[d_a$cv_group != i, ]
+  data_test <- d_a[d_a$cv_group == i, ]
+  # multiple linear regression
+  fit1 <- glm(meanNCortB ~ sex + age + round, data = data_train)
+  fit2 <- glm(meanNCortB ~ .-cv_group, data = data_train)
+  
+  # predict meanNCortB on test set (cv_group == i)
+  cv_results1 <- rbind(cv_results1,
+                       data.frame(Observed = data_test$meanNCortB,
+                                  Predicted1 = predict(fit1, data_test)))
+  cv_results2 <- rbind(cv_results2,
+                       data.frame(Observed = data_test$meanNCortB,
+                                  Predicted2 = predict(fit2, data_test)))
+}
+
+# Graph: predicted vs. observed
+# Model1
+r2 <- format(summary(lm(Predicted1 ~ Observed,
+                       cv_results1))$r.squared,
+            digits = 3)
+p <- ggplot(data = cv_results1,
+            aes(y = Predicted1,
+                x = Observed))
+p + geom_smooth(method = "lm") +
+  geom_point() + 
+  coord_fixed() +
+  theme_classic() +
+  labs(title = "Bedtime Cortisol (Model 1)", 
+       subtitle = bquote(italic(r)^2 == .(r2)),
+         x = "Observed Values", 
+         y = "Predicted Values") 
+
+# Model2
+r2 <- format(summary(lm(Predicted2 ~ Observed,
+                       cv_results2))$r.squared,
+            digits = 3)
+q <- ggplot(data = cv_results2,
+            aes(y = Predicted2,
+                x = Observed))
+q + geom_smooth(method = "lm") +
+  geom_point() + 
+  coord_fixed() +   
+  theme_classic() +
+  labs(title = "Bedtime Cortisol (Model 2)", 
+       subtitle = bquote(italic(r)^2 == .(r2)),
+         x = "Observed Values", 
+         y = "Predicted Values")
+```
+
+##### Bedtime Cortisol (Dichotomous, Logistic Regression):
+
+```{r, message = F, warning = F}
+d_aa <- d_a
+d_aa$meanNCortB <- factor(d_aa$meanNCortB >= median(d_aa$meanNCortB))
+
+cv_results1 <- array(0,c(0,2))
+colnames(cv_results1) <- c("Observed","Predicted1")
+cv_results2 <- array(0,c(0,2))
+colnames(cv_results2) <- c("Observed","Predicted2")
+
+# Begin cv
+for (i in 1:length(d_aa$cv_group))
+{
+  # allocate sample to the test and training sets
+  data_train <- d_aa[d_aa$cv_group != i, ]
+  data_test <- d_aa[d_aa$cv_group == i, ]
+  # logistic regression
+  fit1 <- glm(meanNCortB ~ sex + age + round, data = data_train, 
+              family = "binomial")
+  fit2 <- glm(meanNCortB ~ .-cv_group, data = data_train,
+              family = "binomial")
+  
+  # predict meanNCortB on test set (cv_group == i)
+  cv_results1 <- rbind(cv_results1,
+                       data.frame(Observed = data_test$meanNCortB,
+                                  Predicted1 = predict(fit1, data_test, 
+                                                       type = "response")))
+  cv_results2 <- rbind(cv_results2,
+                       data.frame(Observed = data_test$meanNCortB,
+                                  Predicted2 = predict(fit2, data_test,
+                                                       type = "response")))
+}
+
+# ROC
+# Model1
+pred1 <- prediction(cv_results1$Predicted1, cv_results1$Observed)
+perf1 <- performance(pred1, "tpr", "fpr" )
+plot(perf1, colorize = T, main = "Bedtime Cortisol (Model 1 Logistic Regression)")
+# AUC
+performance(pred1, "auc")@y.values
+# opt cut
+print(opt.cut(perf1, pred1))
+
+# Model2
+pred2 <- prediction(cv_results2$Predicted2, cv_results2$Observed)
+perf2 <- performance(pred2, "tpr", "fpr" )
+plot(perf2, colorize = T, main = "Bedtime Cortisol (Model 2 Logistic Regression)")
+# AUC
+performance(pred2, "auc")@y.values
+# opt cut
+print(opt.cut(perf2, pred2))
+```
+
+##### Bedtime Cortisol (Dichotomous, Random Forest):
+
+```{r, message = F, warning = F}
+d_aa <- d_a
+d_aa$meanNCortB <- factor(d_aa$meanNCortB >= median(d_aa$meanNCortB))
+
+cv_results1 <- array(0,c(0,2))
+colnames(cv_results1) <- c("Observed","Predicted1")
+cv_results2 <- array(0,c(0,2))
+colnames(cv_results2) <- c("Observed","Predicted2")
+
+# Begin cv
+library(randomForest)
+set.seed(2)
+for (i in 1:length(d_aa$cv_group))
+{
+  # allocate sample to the test and training sets
+  data_train <- d_aa[d_aa$cv_group != i, ]
+  data_test <- d_aa[d_aa$cv_group == i, ]
+  # logistic regression
+  fit1 <- randomForest(meanNCortB ~ sex + age + round, data = data_train,
+                       ntree = 500, mtry = 2)
+  fit2 <- randomForest(meanNCortB ~ .-cv_group, data = data_train, 
+                       ntree = 500, mtry = 4)
+  
+  # predict meanNCortB on test set (cv_group == i)
+  cv_results1 <- rbind(cv_results1,
+                       data.frame(Observed = data_test$meanNCortB,
+                                  Predicted1 = predict(fit1, data_test, 
+                                                       type = "prob")[, 2]))
+  cv_results2 <- rbind(cv_results2,
+                       data.frame(Observed = data_test$meanNCortB,
+                                  Predicted2 = predict(fit2, data_test,
+                                                       type = "prob")[, 2]))
+}
+
+# Classification error rate
+# mean(cv_results1$Observed == cv_results1$Predicted1)
+# mean(cv_results2$Observed == cv_results2$Predicted2)
+
+# ROC
+# Model1
+pred1 <- prediction(cv_results1$Predicted1, cv_results1$Observed)
+perf1 <- performance(pred1, "tpr", "fpr" )
+plot(perf1, colorize = T, main = "Bedtime Cortisol (Model 1 Random Forest)")
+# AUC
+performance(pred1, "auc")@y.values
+# opt cut\
+print(opt.cut(perf1, pred1))
+
+# Model2
+pred2 <- prediction(cv_results2$Predicted2, cv_results2$Observed)
+perf2 <- performance(pred2, "tpr", "fpr" )
+plot(perf2, colorize = T, main = "Bedtime Cortisol (Model 2 Random Forest)")
+# AUC
+performance(pred2, "auc")@y.values
+# opt cut
+print(opt.cut(perf2, pred2))
+```
+
+#### All Samples (n = 77)
+
+##### Bedtime Cortisol (Continuous):
+
+```{r, message = F, warning = F}
+d_a <- d_d %>%
+  dplyr::select(-one_of(c("id", "cv_group", "meanNCortW")))
+
+# Prepare for prediction
+results1 <- array(0,c(0,2))
+colnames(results1) <- c("Observed","Predicted1")
+results2 <- array(0,c(0,2))
+colnames(results2) <- c("Observed","Predicted2")
+
+# Prediction
+  # multiple linear regression
+  fit1 <- glm(meanNCortB ~ sex + age + round, data = d_a)
+  fit2 <- glm(meanNCortB ~ . , data = d_a)
+  
+  # predict meanNCortB 
+  results1 <- rbind(results1,
+                    data.frame(Observed = d_a$meanNCortB,
+                               Predicted1 = predict(fit1, d_a)))
+  results2 <- rbind(results2,
+                    data.frame(Observed = d_a$meanNCortB,
+                               Predicted2 = predict(fit2, d_a)))
+
+# Graph: predicted vs. observed
+
+# Model1
+r2 <- format(summary(lm(Predicted1 ~ Observed,
+                       results1))$r.squared,
+            digits = 3)
+p <- ggplot(data = results1,
+            aes(y = Predicted1,
+                x = Observed))
+p + geom_smooth(method = "lm") +
+  geom_point() + 
+  coord_fixed() +
+  theme_classic() +
+  labs(title = "Bedtime Cortisol (Model 1)", 
+       subtitle = bquote(italic(r)^2 == .(r2)),
+         x = "Observed Values", 
+         y = "Predicted Values") 
+
+# Model2
+r2 <- format(summary(lm(Predicted2 ~ Observed,
+                       results2))$r.squared,
+            digits = 3)
+q <- ggplot(data = results2,
+            aes(y = Predicted2,
+                x = Observed))
+q + geom_smooth(method = "lm") +
+  geom_point() + 
+  coord_fixed() +   
+  theme_classic() +
+  labs(title = "Bedtime Cortisol (Model 2)", 
+       subtitle = bquote(italic(r)^2 == .(r2)),
+         x = "Observed Values", 
+         y = "Predicted Values")
+```
+
+##### Bedtime Cortisol (Dichotomous, Logistic Regression):
+
+```{r, message = F, warning = F}
+d_aa <- d_a
+d_aa$meanNCortB <- factor(d_aa$meanNCortB >= median(d_aa$meanNCortB))
+
+results1 <- array(0,c(0,2))
+colnames(results1) <- c("Observed","Predicted1")
+results2 <- array(0,c(0,2))
+colnames(results2) <- c("Observed","Predicted2")
+
+# Begin prediction
+  # logistic regression
+  fit1 <- glm(meanNCortB ~ sex + age + round, data = d_aa, 
+              family = "binomial")
+  fit2 <- glm(meanNCortB ~ . , data = d_aa,
+              family = "binomial")
+  
+  # predict meanNCortB
+  results1 <- rbind(results1,
+                    data.frame(Observed = d_aa$meanNCortB,
+                               Predicted1 = predict(fit1, d_aa, 
+                                                    type = "response")))
+  results2 <- rbind(results2,
+                    data.frame(Observed = d_aa$meanNCortB,
+                               Predicted2 = predict(fit2, d_aa,
+                                                    type = "response")))
+
+# ROC
+
+# Model1
+pred1 <- prediction(results1$Predicted1, results1$Observed)
+perf1 <- performance(pred1, "tpr", "fpr" )
+plot(perf1, colorize = T, main = "Bedtime Cortisol (Model 1 Logistic Regression)")
+# AUC
+performance(pred1, "auc")@y.values
+# opt cut
+print(opt.cut(perf1, pred1))
+
+# Model2
+pred2 <- prediction(results2$Predicted2, results2$Observed)
+perf2 <- performance(pred2, "tpr", "fpr" )
+plot(perf2, colorize = T, main = "Bedtime Cortisol (Model 2 Logistic Regression)")
+# AUC
+performance(pred2, "auc")@y.values
+# opt cut
+print(opt.cut(perf2, pred2))
+```
+
+##### Bedtime Cortisol (Dichotomous, Random Forest):
+
+```{r, message = F, warning = F}
+d_aa <- d_a
+d_aa$meanNCortB <- factor(d_aa$meanNCortB >= median(d_aa$meanNCortB))
+
+results1 <- array(0,c(0,2))
+colnames(results1) <- c("Observed","Predicted1")
+results2 <- array(0,c(0,2))
+colnames(results2) <- c("Observed","Predicted2")
+
+# Begin prediction
+  # random forest
+set.seed(2)
+  fit1 <- randomForest(meanNCortB ~ sex + age + round, data = d_aa, 
+                       ntree = 500, mtry = 2, importance = T)
+  fit2 <- randomForest(meanNCortB ~ . , data = d_aa, 
+                       ntree = 500, mtry = 4, importance = T)
+  
+  # predict meanNCortB on test set
+  results1 <- rbind(results1,
+                    data.frame(Observed = d_aa$meanNCortB,
+                               Predicted1 = predict(fit1, d_aa, 
+                                                    type = "prob")[, 2]))
+  results2 <- rbind(results2,
+                    data.frame(Observed = d_aa$meanNCortB,
+                               Predicted2 = predict(fit2, d_aa,
+                                                    type = "prob")[, 2]))
+  
+varImpPlot(fit1, main = "Bedtime Cortisol (Model 1 Random Forest)")
+varImpPlot(fit2, main = "Bedtime Cortisol (Model 2 Random Forest)")
+
+# Classification error rate
+# mean(results1$Observed == results1$Predicted1)
+# mean(results2$Observed == results2$Predicted2)
+
+# ROC
+
+# Model1
+pred1 <- prediction(results1$Predicted1, results1$Observed)
+perf1 <- performance(pred1, "tpr", "fpr" )
+plot(perf1, colorize = T, main = "Bedtime Cortisol (Model 1 Random Forest)")
+# AUC
+performance(pred1, "auc")@y.values
+# opt cut
+print(opt.cut(perf1, pred1))
+
+# Model2
+pred2 <- prediction(results2$Predicted2, results2$Observed)
+perf2 <- performance(pred2, "tpr", "fpr" )
+plot(perf2, colorize = T, main = "Bedtime Cortisol (Model 2 Random Forest)")
+# AUC
+performance(pred2, "auc")@y.values
+# opt cut
+print(opt.cut(perf2, pred2))
+```
+
+### Using combined CpG and DEG predictors
+
+Prepare the variables:
+```{r, message = F, warning = F}
+# Read in the data and prepare for cross validation
+plot_set1save <- plot_set1
+plot_set1 <- merge(plot_set1, plot_set2[-c(2:6)], by = "id")
+d_d <- plot_set1
+d_d$sex <- as.factor(d_d$sex)
+d_d$round <- as.factor(d_d$round)
+d_d$age <- as.numeric(d_d$age)
+d_d$cv_group <- 1:length(d_d$id)
+dim(d_d)
+```
+
+#### Leave-One-Out 
+
+##### Bedtime Cortisol (Continuous):
+
+```{r, message = F, warning = F}
+d_a <- d_d %>%
+  dplyr::select(-one_of(c("id", "meanNCortW")))
+
+# Prepare for cv
+cv_results1 <- array(0,c(0,2))
+colnames(cv_results1) <- c("Observed","Predicted1")
+cv_results2 <- array(0,c(0,2))
+colnames(cv_results2) <- c("Observed","Predicted2")
+
+# Begin cv
+for (i in 1:length(d_a$cv_group))
+{
+  # allocate sample to the test and training sets
+  data_train <- d_a[d_a$cv_group != i, ]
+  data_test <- d_a[d_a$cv_group == i, ]
+  # multiple linear regression
+  fit1 <- glm(meanNCortB ~ sex + age + round, data = data_train)
+  fit2 <- glm(meanNCortB ~ .-cv_group, data = data_train)
+  
+  # predict meanNCortB on test set (cv_group == i)
+  cv_results1 <- rbind(cv_results1,
+                       data.frame(Observed = data_test$meanNCortB,
+                                  Predicted1 = predict(fit1, data_test)))
+  cv_results2 <- rbind(cv_results2,
+                       data.frame(Observed = data_test$meanNCortB,
+                                  Predicted2 = predict(fit2, data_test)))
+}
+
+# Graph: predicted vs. observed
+# Model1
+r2 <- format(summary(lm(Predicted1 ~ Observed,
+                       cv_results1))$r.squared,
+            digits = 3)
+p <- ggplot(data = cv_results1,
+            aes(y = Predicted1,
+                x = Observed))
+p + geom_smooth(method = "lm") +
+  geom_point() + 
+  coord_fixed() +
+  theme_classic() +
+  labs(title = "Bedtime Cortisol (Model 1)", 
+       subtitle = bquote(italic(r)^2 == .(r2)),
+         x = "Observed Values", 
+         y = "Predicted Values") 
+
+# Model2
+r2 <- format(summary(lm(Predicted2 ~ Observed,
+                       cv_results2))$r.squared,
+            digits = 3)
+q <- ggplot(data = cv_results2,
+            aes(y = Predicted2,
+                x = Observed))
+q + geom_smooth(method = "lm") +
+  geom_point() + 
+  coord_fixed() +   
+  theme_classic() +
+  labs(title = "Bedtime Cortisol (Model 2)", 
+       subtitle = bquote(italic(r)^2 == .(r2)),
+         x = "Observed Values", 
+         y = "Predicted Values")
+```
+
+##### Bedtime Cortisol (Dichotomous, Logistic Regression):
+
+```{r, message = F, warning = F}
+d_aa <- d_a
+d_aa$meanNCortB <- factor(d_aa$meanNCortB >= median(d_aa$meanNCortB))
+
+cv_results1 <- array(0,c(0,2))
+colnames(cv_results1) <- c("Observed","Predicted1")
+cv_results2 <- array(0,c(0,2))
+colnames(cv_results2) <- c("Observed","Predicted2")
+
+# Begin cv
+for (i in 1:length(d_aa$cv_group))
+{
+  # allocate sample to the test and training sets
+  data_train <- d_aa[d_aa$cv_group != i, ]
+  data_test <- d_aa[d_aa$cv_group == i, ]
+  # logistic regression
+  fit1 <- glm(meanNCortB ~ sex + age + round, data = data_train, 
+              family = "binomial")
+  fit2 <- glm(meanNCortB ~ .-cv_group, data = data_train,
+              family = "binomial")
+  
+  # predict meanNCortB on test set (cv_group == i)
+  cv_results1 <- rbind(cv_results1,
+                       data.frame(Observed = data_test$meanNCortB,
+                                  Predicted1 = predict(fit1, data_test, 
+                                                       type = "response")))
+  cv_results2 <- rbind(cv_results2,
+                       data.frame(Observed = data_test$meanNCortB,
+                                  Predicted2 = predict(fit2, data_test,
+                                                       type = "response")))
+}
+
+# ROC
+# Model1
+pred1 <- prediction(cv_results1$Predicted1, cv_results1$Observed)
+perf1 <- performance(pred1, "tpr", "fpr" )
+plot(perf1, colorize = T, main = "Bedtime Cortisol (Model 1 Logistic Regression)")
+# AUC
+performance(pred1, "auc")@y.values
+# opt cut
+print(opt.cut(perf1, pred1))
+
+# Model2
+pred2 <- prediction(cv_results2$Predicted2, cv_results2$Observed)
+perf2 <- performance(pred2, "tpr", "fpr" )
+plot(perf2, colorize = T, main = "Bedtime Cortisol (Model 2 Logistic Regression)")
+# AUC
+performance(pred2, "auc")@y.values
+# opt cut
+print(opt.cut(perf2, pred2))
+```
+
+##### Bedtime Cortisol (Dichotomous, Random Forest):
+
+```{r, message = F, warning = F}
+d_aa <- d_a
+d_aa$meanNCortB <- factor(d_aa$meanNCortB >= median(d_aa$meanNCortB))
+
+cv_results1 <- array(0,c(0,2))
+colnames(cv_results1) <- c("Observed","Predicted1")
+cv_results2 <- array(0,c(0,2))
+colnames(cv_results2) <- c("Observed","Predicted2")
+
+# Begin cv
+library(randomForest)
+set.seed(2)
+for (i in 1:length(d_aa$cv_group))
+{
+  # allocate sample to the test and training sets
+  data_train <- d_aa[d_aa$cv_group != i, ]
+  data_test <- d_aa[d_aa$cv_group == i, ]
+  # logistic regression
+  fit1 <- randomForest(meanNCortB ~ sex + age + round, data = data_train,
+                       ntree = 500, mtry = 2)
+  fit2 <- randomForest(meanNCortB ~ .-cv_group, data = data_train, 
+                       ntree = 500, mtry = 4)
+  
+  # predict meanNCortB on test set (cv_group == i)
+  cv_results1 <- rbind(cv_results1,
+                       data.frame(Observed = data_test$meanNCortB,
+                                  Predicted1 = predict(fit1, data_test, 
+                                                       type = "prob")[, 2]))
+  cv_results2 <- rbind(cv_results2,
+                       data.frame(Observed = data_test$meanNCortB,
+                                  Predicted2 = predict(fit2, data_test,
+                                                       type = "prob")[, 2]))
+}
+
+# Classification error rate
+# mean(cv_results1$Observed == cv_results1$Predicted1)
+# mean(cv_results2$Observed == cv_results2$Predicted2)
+
+# ROC
+# Model1
+pred1 <- prediction(cv_results1$Predicted1, cv_results1$Observed)
+perf1 <- performance(pred1, "tpr", "fpr" )
+plot(perf1, colorize = T, main = "Bedtime Cortisol (Model 1 Random Forest)")
+# AUC
+performance(pred1, "auc")@y.values
+# opt cut\
+print(opt.cut(perf1, pred1))
+
+# Model2
+pred2 <- prediction(cv_results2$Predicted2, cv_results2$Observed)
+perf2 <- performance(pred2, "tpr", "fpr" )
+plot(perf2, colorize = T, main = "Bedtime Cortisol (Model 2 Random Forest)")
+# AUC
+performance(pred2, "auc")@y.values
+# opt cut
+print(opt.cut(perf2, pred2))
+```
+
+#### All Samples (n = 71)
+
+##### Bedtime Cortisol (Continuous):
+
+```{r, message = F, warning = F}
+d_a <- d_d %>%
+  dplyr::select(-one_of(c("id", "cv_group", "meanNCortW")))
+
+# Prepare for prediction
+results1 <- array(0,c(0,2))
+colnames(results1) <- c("Observed","Predicted1")
+results2 <- array(0,c(0,2))
+colnames(results2) <- c("Observed","Predicted2")
+
+# Prediction
+  # multiple linear regression
+  fit1 <- glm(meanNCortB ~ sex + age + round, data = d_a)
+  fit2 <- glm(meanNCortB ~ . , data = d_a)
+  
+  # predict meanNCortB 
+  results1 <- rbind(results1,
+                    data.frame(Observed = d_a$meanNCortB,
+                               Predicted1 = predict(fit1, d_a)))
+  results2 <- rbind(results2,
+                    data.frame(Observed = d_a$meanNCortB,
+                               Predicted2 = predict(fit2, d_a)))
+
+# Graph: predicted vs. observed
+
+# Model1
+r2 <- format(summary(lm(Predicted1 ~ Observed,
+                       results1))$r.squared,
+            digits = 3)
+p <- ggplot(data = results1,
+            aes(y = Predicted1,
+                x = Observed))
+p + geom_smooth(method = "lm") +
+  geom_point() + 
+  coord_fixed() +
+  theme_classic() +
+  labs(title = "Bedtime Cortisol (Model 1)", 
+       subtitle = bquote(italic(r)^2 == .(r2)),
+         x = "Observed Values", 
+         y = "Predicted Values") 
+
+# Model2
+r2 <- format(summary(lm(Predicted2 ~ Observed,
+                       results2))$r.squared,
+            digits = 3)
+q <- ggplot(data = results2,
+            aes(y = Predicted2,
+                x = Observed))
+q + geom_smooth(method = "lm") +
+  geom_point() + 
+  coord_fixed() +   
+  theme_classic() +
+  labs(title = "Bedtime Cortisol (Model 2)", 
+       subtitle = bquote(italic(r)^2 == .(r2)),
+         x = "Observed Values", 
+         y = "Predicted Values")
+```
+
+##### Bedtime Cortisol (Dichotomous, Logistic Regression):
+
+```{r, message = F, warning = F}
+d_aa <- d_a
+d_aa$meanNCortB <- factor(d_aa$meanNCortB >= median(d_aa$meanNCortB))
+
+results1 <- array(0,c(0,2))
+colnames(results1) <- c("Observed","Predicted1")
+results2 <- array(0,c(0,2))
+colnames(results2) <- c("Observed","Predicted2")
+
+# Begin prediction
+  # logistic regression
+  fit1 <- glm(meanNCortB ~ sex + age + round, data = d_aa, 
+              family = "binomial")
+  fit2 <- glm(meanNCortB ~ . , data = d_aa,
+              family = "binomial")
+  
+  # predict meanNCortB
+  results1 <- rbind(results1,
+                    data.frame(Observed = d_aa$meanNCortB,
+                               Predicted1 = predict(fit1, d_aa, 
+                                                    type = "response")))
+  results2 <- rbind(results2,
+                    data.frame(Observed = d_aa$meanNCortB,
+                               Predicted2 = predict(fit2, d_aa,
+                                                    type = "response")))
+
+# ROC
+
+# Model1
+pred1 <- prediction(results1$Predicted1, results1$Observed)
+perf1 <- performance(pred1, "tpr", "fpr" )
+plot(perf1, colorize = T, main = "Bedtime Cortisol (Model 1 Logistic Regression)")
+# AUC
+performance(pred1, "auc")@y.values
+# opt cut
+print(opt.cut(perf1, pred1))
+
+# Model2
+pred2 <- prediction(results2$Predicted2, results2$Observed)
+perf2 <- performance(pred2, "tpr", "fpr" )
+plot(perf2, colorize = T, main = "Bedtime Cortisol (Model 2 Logistic Regression)")
+# AUC
+performance(pred2, "auc")@y.values
+# opt cut
+print(opt.cut(perf2, pred2))
+```
+
+##### Bedtime Cortisol (Dichotomous, Random Forest):
+
+```{r, message = F, warning = F}
+d_aa <- d_a
+d_aa$meanNCortB <- factor(d_aa$meanNCortB >= median(d_aa$meanNCortB))
+
+results1 <- array(0,c(0,2))
+colnames(results1) <- c("Observed","Predicted1")
+results2 <- array(0,c(0,2))
+colnames(results2) <- c("Observed","Predicted2")
+
+# Begin prediction
+  # random forest
+set.seed(2)
+  fit1 <- randomForest(meanNCortB ~ sex + age + round, data = d_aa, 
+                       ntree = 500, mtry = 2, importance = T)
+  fit2 <- randomForest(meanNCortB ~ . , data = d_aa, 
+                       ntree = 500, mtry = 4, importance = T)
+  
+  # predict meanNCortB on test set
+  results1 <- rbind(results1,
+                    data.frame(Observed = d_aa$meanNCortB,
+                               Predicted1 = predict(fit1, d_aa, 
+                                                    type = "prob")[, 2]))
+  results2 <- rbind(results2,
+                    data.frame(Observed = d_aa$meanNCortB,
+                               Predicted2 = predict(fit2, d_aa,
+                                                    type = "prob")[, 2]))
+  
+varImpPlot(fit1, main = "Bedtime Cortisol (Model 1 Random Forest)")
+varImpPlot(fit2, main = "Bedtime Cortisol (Model 2 Random Forest)")
+
+# Classification error rate
+# mean(results1$Observed == results1$Predicted1)
+# mean(results2$Observed == results2$Predicted2)
+
+# ROC
+
+# Model1
+pred1 <- prediction(results1$Predicted1, results1$Observed)
+perf1 <- performance(pred1, "tpr", "fpr" )
+plot(perf1, colorize = T, main = "Bedtime Cortisol (Model 1 Random Forest)")
+# AUC
+performance(pred1, "auc")@y.values
+# opt cut
+print(opt.cut(perf1, pred1))
+
+# Model2
+pred2 <- prediction(results2$Predicted2, results2$Observed)
+perf2 <- performance(pred2, "tpr", "fpr" )
+plot(perf2, colorize = T, main = "Bedtime Cortisol (Model 2 Random Forest)")
+# AUC
+performance(pred2, "auc")@y.values
+# opt cut
+print(opt.cut(perf2, pred2))
+```
+
+### Using CpG predictors in the combined sample
+
+Prepare the variables:
+```{r, message = F, warning = F}
+# Read in the data and prepare for cross validation
+d_d <- plot_set1[, c(1:12)]
+d_d$sex <- as.factor(d_d$sex)
+d_d$round <- as.factor(d_d$round)
+d_d$age <- as.numeric(d_d$age)
+d_d$cv_group <- 1:length(d_d$id)
+dim(d_d)
+```
+
+#### Leave-One-Out 
+
+##### Bedtime Cortisol (Continuous):
+
+```{r, message = F, warning = F}
+d_a <- d_d %>%
+  dplyr::select(-one_of(c("id", "meanNCortW")))
+
+# Prepare for cv
+cv_results1 <- array(0,c(0,2))
+colnames(cv_results1) <- c("Observed","Predicted1")
+cv_results2 <- array(0,c(0,2))
+colnames(cv_results2) <- c("Observed","Predicted2")
+
+# Begin cv
+for (i in 1:length(d_a$cv_group))
+{
+  # allocate sample to the test and training sets
+  data_train <- d_a[d_a$cv_group != i, ]
+  data_test <- d_a[d_a$cv_group == i, ]
+  # multiple linear regression
+  fit1 <- glm(meanNCortB ~ sex + age + round, data = data_train)
+  fit2 <- glm(meanNCortB ~ .-cv_group, data = data_train)
+  
+  # predict meanNCortB on test set (cv_group == i)
+  cv_results1 <- rbind(cv_results1,
+                       data.frame(Observed = data_test$meanNCortB,
+                                  Predicted1 = predict(fit1, data_test)))
+  cv_results2 <- rbind(cv_results2,
+                       data.frame(Observed = data_test$meanNCortB,
+                                  Predicted2 = predict(fit2, data_test)))
+}
+
+# Graph: predicted vs. observed
+# Model1
+r2 <- format(summary(lm(Predicted1 ~ Observed,
+                       cv_results1))$r.squared,
+            digits = 3)
+p <- ggplot(data = cv_results1,
+            aes(y = Predicted1,
+                x = Observed))
+p + geom_smooth(method = "lm") +
+  geom_point() + 
+  coord_fixed() +
+  theme_classic() +
+  labs(title = "Bedtime Cortisol (Model 1)", 
+       subtitle = bquote(italic(r)^2 == .(r2)),
+         x = "Observed Values", 
+         y = "Predicted Values") 
+
+# Model2
+r2 <- format(summary(lm(Predicted2 ~ Observed,
+                       cv_results2))$r.squared,
+            digits = 3)
+q <- ggplot(data = cv_results2,
+            aes(y = Predicted2,
+                x = Observed))
+q + geom_smooth(method = "lm") +
+  geom_point() + 
+  coord_fixed() +   
+  theme_classic() +
+  labs(title = "Bedtime Cortisol (Model 2)", 
+       subtitle = bquote(italic(r)^2 == .(r2)),
+         x = "Observed Values", 
+         y = "Predicted Values")
+```
+
+##### Bedtime Cortisol (Dichotomous, Logistic Regression):
+
+```{r, message = F, warning = F}
+d_aa <- d_a
+d_aa$meanNCortB <- factor(d_aa$meanNCortB >= median(d_aa$meanNCortB))
+
+cv_results1 <- array(0,c(0,2))
+colnames(cv_results1) <- c("Observed","Predicted1")
+cv_results2 <- array(0,c(0,2))
+colnames(cv_results2) <- c("Observed","Predicted2")
+
+# Begin cv
+for (i in 1:length(d_aa$cv_group))
+{
+  # allocate sample to the test and training sets
+  data_train <- d_aa[d_aa$cv_group != i, ]
+  data_test <- d_aa[d_aa$cv_group == i, ]
+  # logistic regression
+  fit1 <- glm(meanNCortB ~ sex + age + round, data = data_train, 
+              family = "binomial")
+  fit2 <- glm(meanNCortB ~ .-cv_group, data = data_train,
+              family = "binomial")
+  
+  # predict meanNCortB on test set (cv_group == i)
+  cv_results1 <- rbind(cv_results1,
+                       data.frame(Observed = data_test$meanNCortB,
+                                  Predicted1 = predict(fit1, data_test, 
+                                                       type = "response")))
+  cv_results2 <- rbind(cv_results2,
+                       data.frame(Observed = data_test$meanNCortB,
+                                  Predicted2 = predict(fit2, data_test,
+                                                       type = "response")))
+}
+
+# ROC
+# Model1
+pred1 <- prediction(cv_results1$Predicted1, cv_results1$Observed)
+perf1 <- performance(pred1, "tpr", "fpr" )
+plot(perf1, colorize = T, main = "Bedtime Cortisol (Model 1 Logistic Regression)")
+# AUC
+performance(pred1, "auc")@y.values
+# opt cut
+print(opt.cut(perf1, pred1))
+
+# Model2
+pred2 <- prediction(cv_results2$Predicted2, cv_results2$Observed)
+perf2 <- performance(pred2, "tpr", "fpr" )
+plot(perf2, colorize = T, main = "Bedtime Cortisol (Model 2 Logistic Regression)")
+# AUC
+performance(pred2, "auc")@y.values
+# opt cut
+print(opt.cut(perf2, pred2))
+```
+
+##### Bedtime Cortisol (Dichotomous, Random Forest):
+
+```{r, message = F, warning = F}
+d_aa <- d_a
+d_aa$meanNCortB <- factor(d_aa$meanNCortB >= median(d_aa$meanNCortB))
+
+cv_results1 <- array(0,c(0,2))
+colnames(cv_results1) <- c("Observed","Predicted1")
+cv_results2 <- array(0,c(0,2))
+colnames(cv_results2) <- c("Observed","Predicted2")
+
+# Begin cv
+library(randomForest)
+set.seed(2)
+for (i in 1:length(d_aa$cv_group))
+{
+  # allocate sample to the test and training sets
+  data_train <- d_aa[d_aa$cv_group != i, ]
+  data_test <- d_aa[d_aa$cv_group == i, ]
+  # logistic regression
+  fit1 <- randomForest(meanNCortB ~ sex + age + round, data = data_train,
+                       ntree = 500, mtry = 2)
+  fit2 <- randomForest(meanNCortB ~ .-cv_group, data = data_train, 
+                       ntree = 500, mtry = 4)
+  
+  # predict meanNCortB on test set (cv_group == i)
+  cv_results1 <- rbind(cv_results1,
+                       data.frame(Observed = data_test$meanNCortB,
+                                  Predicted1 = predict(fit1, data_test, 
+                                                       type = "prob")[, 2]))
+  cv_results2 <- rbind(cv_results2,
+                       data.frame(Observed = data_test$meanNCortB,
+                                  Predicted2 = predict(fit2, data_test,
+                                                       type = "prob")[, 2]))
+}
+
+# Classification error rate
+# mean(cv_results1$Observed == cv_results1$Predicted1)
+# mean(cv_results2$Observed == cv_results2$Predicted2)
+
+# ROC
+# Model1
+pred1 <- prediction(cv_results1$Predicted1, cv_results1$Observed)
+perf1 <- performance(pred1, "tpr", "fpr" )
+plot(perf1, colorize = T, main = "Bedtime Cortisol (Model 1 Random Forest)")
+# AUC
+performance(pred1, "auc")@y.values
+# opt cut\
+print(opt.cut(perf1, pred1))
+
+# Model2
+pred2 <- prediction(cv_results2$Predicted2, cv_results2$Observed)
+perf2 <- performance(pred2, "tpr", "fpr" )
+plot(perf2, colorize = T, main = "Bedtime Cortisol (Model 2 Random Forest)")
+# AUC
+performance(pred2, "auc")@y.values
+# opt cut
+print(opt.cut(perf2, pred2))
+```
+
+#### All Samples (n = 71)
+
+##### Bedtime Cortisol (Continuous):
+
+```{r, message = F, warning = F}
+d_a <- d_d %>%
+  dplyr::select(-one_of(c("id", "cv_group", "meanNCortW")))
+
+# Prepare for prediction
+results1 <- array(0,c(0,2))
+colnames(results1) <- c("Observed","Predicted1")
+results2 <- array(0,c(0,2))
+colnames(results2) <- c("Observed","Predicted2")
+
+# Prediction
+  # multiple linear regression
+  fit1 <- glm(meanNCortB ~ sex + age + round, data = d_a)
+  fit2 <- glm(meanNCortB ~ . , data = d_a)
+  
+  # predict meanNCortB 
+  results1 <- rbind(results1,
+                    data.frame(Observed = d_a$meanNCortB,
+                               Predicted1 = predict(fit1, d_a)))
+  results2 <- rbind(results2,
+                    data.frame(Observed = d_a$meanNCortB,
+                               Predicted2 = predict(fit2, d_a)))
+
+# Graph: predicted vs. observed
+
+# Model1
+r2 <- format(summary(lm(Predicted1 ~ Observed,
+                       results1))$r.squared,
+            digits = 3)
+p <- ggplot(data = results1,
+            aes(y = Predicted1,
+                x = Observed))
+p + geom_smooth(method = "lm") +
+  geom_point() + 
+  coord_fixed() +
+  theme_classic() +
+  labs(title = "Bedtime Cortisol (Model 1)", 
+       subtitle = bquote(italic(r)^2 == .(r2)),
+         x = "Observed Values", 
+         y = "Predicted Values") 
+
+# Model2
+r2 <- format(summary(lm(Predicted2 ~ Observed,
+                       results2))$r.squared,
+            digits = 3)
+q <- ggplot(data = results2,
+            aes(y = Predicted2,
+                x = Observed))
+q + geom_smooth(method = "lm") +
+  geom_point() + 
+  coord_fixed() +   
+  theme_classic() +
+  labs(title = "Bedtime Cortisol (Model 2)", 
+       subtitle = bquote(italic(r)^2 == .(r2)),
+         x = "Observed Values", 
+         y = "Predicted Values")
+```
+
+##### Bedtime Cortisol (Dichotomous, Logistic Regression):
+
+```{r, message = F, warning = F}
+d_aa <- d_a
+d_aa$meanNCortB <- factor(d_aa$meanNCortB >= median(d_aa$meanNCortB))
+
+results1 <- array(0,c(0,2))
+colnames(results1) <- c("Observed","Predicted1")
+results2 <- array(0,c(0,2))
+colnames(results2) <- c("Observed","Predicted2")
+
+# Begin prediction
+  # logistic regression
+  fit1 <- glm(meanNCortB ~ sex + age + round, data = d_aa, 
+              family = "binomial")
+  fit2 <- glm(meanNCortB ~ . , data = d_aa,
+              family = "binomial")
+  
+  # predict meanNCortB
+  results1 <- rbind(results1,
+                    data.frame(Observed = d_aa$meanNCortB,
+                               Predicted1 = predict(fit1, d_aa, 
+                                                    type = "response")))
+  results2 <- rbind(results2,
+                    data.frame(Observed = d_aa$meanNCortB,
+                               Predicted2 = predict(fit2, d_aa,
+                                                    type = "response")))
+
+# ROC
+
+# Model1
+pred1 <- prediction(results1$Predicted1, results1$Observed)
+perf1 <- performance(pred1, "tpr", "fpr" )
+plot(perf1, colorize = T, main = "Bedtime Cortisol (Model 1 Logistic Regression)")
+# AUC
+performance(pred1, "auc")@y.values
+# opt cut
+print(opt.cut(perf1, pred1))
+
+# Model2
+pred2 <- prediction(results2$Predicted2, results2$Observed)
+perf2 <- performance(pred2, "tpr", "fpr" )
+plot(perf2, colorize = T, main = "Bedtime Cortisol (Model 2 Logistic Regression)")
+# AUC
+performance(pred2, "auc")@y.values
+# opt cut
+print(opt.cut(perf2, pred2))
+```
+
+##### Bedtime Cortisol (Dichotomous, Random Forest):
+
+```{r, message = F, warning = F}
+d_aa <- d_a
+d_aa$meanNCortB <- factor(d_aa$meanNCortB >= median(d_aa$meanNCortB))
+
+results1 <- array(0,c(0,2))
+colnames(results1) <- c("Observed","Predicted1")
+results2 <- array(0,c(0,2))
+colnames(results2) <- c("Observed","Predicted2")
+
+# Begin prediction
+  # random forest
+set.seed(2)
+  fit1 <- randomForest(meanNCortB ~ sex + age + round, data = d_aa, 
+                       ntree = 500, mtry = 2, importance = T)
+  fit2 <- randomForest(meanNCortB ~ . , data = d_aa, 
+                       ntree = 500, mtry = 4, importance = T)
+  
+  # predict meanNCortB on test set
+  results1 <- rbind(results1,
+                    data.frame(Observed = d_aa$meanNCortB,
+                               Predicted1 = predict(fit1, d_aa, 
+                                                    type = "prob")[, 2]))
+  results2 <- rbind(results2,
+                    data.frame(Observed = d_aa$meanNCortB,
+                               Predicted2 = predict(fit2, d_aa,
+                                                    type = "prob")[, 2]))
+  
+varImpPlot(fit1, main = "Bedtime Cortisol (Model 1 Random Forest)")
+varImpPlot(fit2, main = "Bedtime Cortisol (Model 2 Random Forest)")
+
+# Classification error rate
+# mean(results1$Observed == results1$Predicted1)
+# mean(results2$Observed == results2$Predicted2)
+
+# ROC
+
+# Model1
+pred1 <- prediction(results1$Predicted1, results1$Observed)
+perf1 <- performance(pred1, "tpr", "fpr" )
+plot(perf1, colorize = T, main = "Bedtime Cortisol (Model 1 Random Forest)")
+# AUC
+performance(pred1, "auc")@y.values
+# opt cut
+print(opt.cut(perf1, pred1))
+
+# Model2
+pred2 <- prediction(results2$Predicted2, results2$Observed)
+perf2 <- performance(pred2, "tpr", "fpr" )
+plot(perf2, colorize = T, main = "Bedtime Cortisol (Model 2 Random Forest)")
+# AUC
+performance(pred2, "auc")@y.values
+# opt cut
+print(opt.cut(perf2, pred2))
+```
+
+### Using DEG predictors in the combined sample
+
+Prepare the variables:
+```{r, message = F, warning = F}
+# Read in the data and prepare for cross validation
+d_d <- plot_set1[, c(1:6, 13:21)]
+d_d$sex <- as.factor(d_d$sex)
+d_d$round <- as.factor(d_d$round)
+d_d$age <- as.numeric(d_d$age)
+d_d$cv_group <- 1:length(d_d$id)
+dim(d_d)
+```
+
+#### Leave-One-Out 
+
+##### Bedtime Cortisol (Continuous):
+
+```{r, message = F, warning = F}
+d_a <- d_d %>%
+  dplyr::select(-one_of(c("id", "meanNCortW")))
+
+# Prepare for cv
+cv_results1 <- array(0,c(0,2))
+colnames(cv_results1) <- c("Observed","Predicted1")
+cv_results2 <- array(0,c(0,2))
+colnames(cv_results2) <- c("Observed","Predicted2")
+
+# Begin cv
+for (i in 1:length(d_a$cv_group))
+{
+  # allocate sample to the test and training sets
+  data_train <- d_a[d_a$cv_group != i, ]
+  data_test <- d_a[d_a$cv_group == i, ]
+  # multiple linear regression
+  fit1 <- glm(meanNCortB ~ sex + age + round, data = data_train)
+  fit2 <- glm(meanNCortB ~ .-cv_group, data = data_train)
+  
+  # predict meanNCortB on test set (cv_group == i)
+  cv_results1 <- rbind(cv_results1,
+                       data.frame(Observed = data_test$meanNCortB,
+                                  Predicted1 = predict(fit1, data_test)))
+  cv_results2 <- rbind(cv_results2,
+                       data.frame(Observed = data_test$meanNCortB,
+                                  Predicted2 = predict(fit2, data_test)))
+}
+
+# Graph: predicted vs. observed
+# Model1
+r2 <- format(summary(lm(Predicted1 ~ Observed,
+                       cv_results1))$r.squared,
+            digits = 3)
+p <- ggplot(data = cv_results1,
+            aes(y = Predicted1,
+                x = Observed))
+p + geom_smooth(method = "lm") +
+  geom_point() + 
+  coord_fixed() +
+  theme_classic() +
+  labs(title = "Bedtime Cortisol (Model 1)", 
+       subtitle = bquote(italic(r)^2 == .(r2)),
+         x = "Observed Values", 
+         y = "Predicted Values") 
+
+# Model2
+r2 <- format(summary(lm(Predicted2 ~ Observed,
+                       cv_results2))$r.squared,
+            digits = 3)
+q <- ggplot(data = cv_results2,
+            aes(y = Predicted2,
+                x = Observed))
+q + geom_smooth(method = "lm") +
+  geom_point() + 
+  coord_fixed() +   
+  theme_classic() +
+  labs(title = "Bedtime Cortisol (Model 2)", 
+       subtitle = bquote(italic(r)^2 == .(r2)),
+         x = "Observed Values", 
+         y = "Predicted Values")
+```
+
+##### Bedtime Cortisol (Dichotomous, Logistic Regression):
+
+```{r, message = F, warning = F}
+d_aa <- d_a
+d_aa$meanNCortB <- factor(d_aa$meanNCortB >= median(d_aa$meanNCortB))
+
+cv_results1 <- array(0,c(0,2))
+colnames(cv_results1) <- c("Observed","Predicted1")
+cv_results2 <- array(0,c(0,2))
+colnames(cv_results2) <- c("Observed","Predicted2")
+
+# Begin cv
+for (i in 1:length(d_aa$cv_group))
+{
+  # allocate sample to the test and training sets
+  data_train <- d_aa[d_aa$cv_group != i, ]
+  data_test <- d_aa[d_aa$cv_group == i, ]
+  # logistic regression
+  fit1 <- glm(meanNCortB ~ sex + age + round, data = data_train, 
+              family = "binomial")
+  fit2 <- glm(meanNCortB ~ .-cv_group, data = data_train,
+              family = "binomial")
+  
+  # predict meanNCortB on test set (cv_group == i)
+  cv_results1 <- rbind(cv_results1,
+                       data.frame(Observed = data_test$meanNCortB,
+                                  Predicted1 = predict(fit1, data_test, 
+                                                       type = "response")))
+  cv_results2 <- rbind(cv_results2,
+                       data.frame(Observed = data_test$meanNCortB,
+                                  Predicted2 = predict(fit2, data_test,
+                                                       type = "response")))
+}
+
+# ROC
+# Model1
+pred1 <- prediction(cv_results1$Predicted1, cv_results1$Observed)
+perf1 <- performance(pred1, "tpr", "fpr" )
+plot(perf1, colorize = T, main = "Bedtime Cortisol (Model 1 Logistic Regression)")
+# AUC
+performance(pred1, "auc")@y.values
+# opt cut
+print(opt.cut(perf1, pred1))
+
+# Model2
+pred2 <- prediction(cv_results2$Predicted2, cv_results2$Observed)
+perf2 <- performance(pred2, "tpr", "fpr" )
+plot(perf2, colorize = T, main = "Bedtime Cortisol (Model 2 Logistic Regression)")
+# AUC
+performance(pred2, "auc")@y.values
+# opt cut
+print(opt.cut(perf2, pred2))
+```
+
+##### Bedtime Cortisol (Dichotomous, Random Forest):
+
+```{r, message = F, warning = F}
+d_aa <- d_a
+d_aa$meanNCortB <- factor(d_aa$meanNCortB >= median(d_aa$meanNCortB))
+
+cv_results1 <- array(0,c(0,2))
+colnames(cv_results1) <- c("Observed","Predicted1")
+cv_results2 <- array(0,c(0,2))
+colnames(cv_results2) <- c("Observed","Predicted2")
+
+# Begin cv
+library(randomForest)
+set.seed(2)
+for (i in 1:length(d_aa$cv_group))
+{
+  # allocate sample to the test and training sets
+  data_train <- d_aa[d_aa$cv_group != i, ]
+  data_test <- d_aa[d_aa$cv_group == i, ]
+  # logistic regression
+  fit1 <- randomForest(meanNCortB ~ sex + age + round, data = data_train,
+                       ntree = 500, mtry = 2)
+  fit2 <- randomForest(meanNCortB ~ .-cv_group, data = data_train, 
+                       ntree = 500, mtry = 4)
+  
+  # predict meanNCortB on test set (cv_group == i)
+  cv_results1 <- rbind(cv_results1,
+                       data.frame(Observed = data_test$meanNCortB,
+                                  Predicted1 = predict(fit1, data_test, 
+                                                       type = "prob")[, 2]))
+  cv_results2 <- rbind(cv_results2,
+                       data.frame(Observed = data_test$meanNCortB,
+                                  Predicted2 = predict(fit2, data_test,
+                                                       type = "prob")[, 2]))
+}
+
+# Classification error rate
+# mean(cv_results1$Observed == cv_results1$Predicted1)
+# mean(cv_results2$Observed == cv_results2$Predicted2)
+
+# ROC
+# Model1
+pred1 <- prediction(cv_results1$Predicted1, cv_results1$Observed)
+perf1 <- performance(pred1, "tpr", "fpr" )
+plot(perf1, colorize = T, main = "Bedtime Cortisol (Model 1 Random Forest)")
+# AUC
+performance(pred1, "auc")@y.values
+# opt cut\
+print(opt.cut(perf1, pred1))
+
+# Model2
+pred2 <- prediction(cv_results2$Predicted2, cv_results2$Observed)
+perf2 <- performance(pred2, "tpr", "fpr" )
+plot(perf2, colorize = T, main = "Bedtime Cortisol (Model 2 Random Forest)")
+# AUC
+performance(pred2, "auc")@y.values
+# opt cut
+print(opt.cut(perf2, pred2))
+```
+
+#### All Samples (n = 71)
+
+##### Bedtime Cortisol (Continuous):
+
+```{r, message = F, warning = F}
+d_a <- d_d %>%
+  dplyr::select(-one_of(c("id", "cv_group", "meanNCortW")))
+
+# Prepare for prediction
+results1 <- array(0,c(0,2))
+colnames(results1) <- c("Observed","Predicted1")
+results2 <- array(0,c(0,2))
+colnames(results2) <- c("Observed","Predicted2")
+
+# Prediction
+  # multiple linear regression
+  fit1 <- glm(meanNCortB ~ sex + age + round, data = d_a)
+  fit2 <- glm(meanNCortB ~ . , data = d_a)
+  
+  # predict meanNCortB 
+  results1 <- rbind(results1,
+                    data.frame(Observed = d_a$meanNCortB,
+                               Predicted1 = predict(fit1, d_a)))
+  results2 <- rbind(results2,
+                    data.frame(Observed = d_a$meanNCortB,
+                               Predicted2 = predict(fit2, d_a)))
+
+# Graph: predicted vs. observed
+
+# Model1
+r2 <- format(summary(lm(Predicted1 ~ Observed,
+                       results1))$r.squared,
+            digits = 3)
+p <- ggplot(data = results1,
+            aes(y = Predicted1,
+                x = Observed))
+p + geom_smooth(method = "lm") +
+  geom_point() + 
+  coord_fixed() +
+  theme_classic() +
+  labs(title = "Bedtime Cortisol (Model 1)", 
+       subtitle = bquote(italic(r)^2 == .(r2)),
+         x = "Observed Values", 
+         y = "Predicted Values") 
+
+# Model2
+r2 <- format(summary(lm(Predicted2 ~ Observed,
+                       results2))$r.squared,
+            digits = 3)
+q <- ggplot(data = results2,
+            aes(y = Predicted2,
+                x = Observed))
+q + geom_smooth(method = "lm") +
+  geom_point() + 
+  coord_fixed() +   
+  theme_classic() +
+  labs(title = "Bedtime Cortisol (Model 2)", 
+       subtitle = bquote(italic(r)^2 == .(r2)),
+         x = "Observed Values", 
+         y = "Predicted Values")
+```
+
+##### Bedtime Cortisol (Dichotomous, Logistic Regression):
+
+```{r, message = F, warning = F}
+d_aa <- d_a
+d_aa$meanNCortB <- factor(d_aa$meanNCortB >= median(d_aa$meanNCortB))
+
+results1 <- array(0,c(0,2))
+colnames(results1) <- c("Observed","Predicted1")
+results2 <- array(0,c(0,2))
+colnames(results2) <- c("Observed","Predicted2")
+
+# Begin prediction
+  # logistic regression
+  fit1 <- glm(meanNCortB ~ sex + age + round, data = d_aa, 
+              family = "binomial")
+  fit2 <- glm(meanNCortB ~ . , data = d_aa,
+              family = "binomial")
+  
+  # predict meanNCortB
+  results1 <- rbind(results1,
+                    data.frame(Observed = d_aa$meanNCortB,
+                               Predicted1 = predict(fit1, d_aa, 
+                                                    type = "response")))
+  results2 <- rbind(results2,
+                    data.frame(Observed = d_aa$meanNCortB,
+                               Predicted2 = predict(fit2, d_aa,
+                                                    type = "response")))
+
+# ROC
+
+# Model1
+pred1 <- prediction(results1$Predicted1, results1$Observed)
+perf1 <- performance(pred1, "tpr", "fpr" )
+plot(perf1, colorize = T, main = "Bedtime Cortisol (Model 1 Logistic Regression)")
+# AUC
+performance(pred1, "auc")@y.values
+# opt cut
+print(opt.cut(perf1, pred1))
+
+# Model2
+pred2 <- prediction(results2$Predicted2, results2$Observed)
+perf2 <- performance(pred2, "tpr", "fpr" )
+plot(perf2, colorize = T, main = "Bedtime Cortisol (Model 2 Logistic Regression)")
+# AUC
+performance(pred2, "auc")@y.values
+# opt cut
+print(opt.cut(perf2, pred2))
+```
+
+##### Bedtime Cortisol (Dichotomous, Random Forest):
+
+```{r, message = F, warning = F}
+d_aa <- d_a
+d_aa$meanNCortB <- factor(d_aa$meanNCortB >= median(d_aa$meanNCortB))
+
+results1 <- array(0,c(0,2))
+colnames(results1) <- c("Observed","Predicted1")
+results2 <- array(0,c(0,2))
+colnames(results2) <- c("Observed","Predicted2")
+
+# Begin prediction
+  # random forest
+set.seed(2)
+  fit1 <- randomForest(meanNCortB ~ sex + age + round, data = d_aa, 
+                       ntree = 500, mtry = 2, importance = T)
+  fit2 <- randomForest(meanNCortB ~ . , data = d_aa, 
+                       ntree = 500, mtry = 4, importance = T)
+  
+  # predict meanNCortB on test set
+  results1 <- rbind(results1,
+                    data.frame(Observed = d_aa$meanNCortB,
+                               Predicted1 = predict(fit1, d_aa, 
+                                                    type = "prob")[, 2]))
+  results2 <- rbind(results2,
+                    data.frame(Observed = d_aa$meanNCortB,
+                               Predicted2 = predict(fit2, d_aa,
+                                                    type = "prob")[, 2]))
+  
+varImpPlot(fit1, main = "Bedtime Cortisol (Model 1 Random Forest)")
+varImpPlot(fit2, main = "Bedtime Cortisol (Model 2 Random Forest)")
+
+# Classification error rate
+# mean(results1$Observed == results1$Predicted1)
+# mean(results2$Observed == results2$Predicted2)
+
+# ROC
+
+# Model1
+pred1 <- prediction(results1$Predicted1, results1$Observed)
+perf1 <- performance(pred1, "tpr", "fpr" )
+plot(perf1, colorize = T, main = "Bedtime Cortisol (Model 1 Random Forest)")
+# AUC
+performance(pred1, "auc")@y.values
+# opt cut
+print(opt.cut(perf1, pred1))
+
+# Model2
+pred2 <- prediction(results2$Predicted2, results2$Observed)
+perf2 <- performance(pred2, "tpr", "fpr" )
+plot(perf2, colorize = T, main = "Bedtime Cortisol (Model 2 Random Forest)")
+# AUC
+performance(pred2, "auc")@y.values
+# opt cut
+print(opt.cut(perf2, pred2))
+```
+
+# Awakenin Cortisol Prediction Models
+
+## CpG Predictors: Awakening Cortisol Scatterplots
+
+```{r, message = F, warning = F}
+# Setup
+# d_d <- d_save
+# plot_set2 <- cbind(d_d[c("id", "sex", "round", "age", 
+#                    "meanNCortB", "meanNCortW")], 
+#                    d_d[colnames(d_d) %in% CpG_set2$minCpG])
+# dim(plot_set2)
+plot_set2save <- plot_set2
+plot_set2 <- plot_set1save
+
+# Scatterplots 
+for (i in 7:ncol(plot_set2)) {
+  r2W = format(summary(lm(plot_set2[, i] ~ meanNCortW,
+                         plot_set2))$r.squared,
+              digits = 3)
+
+  ggW <- ggplot(plot_set2,
+                aes(y = plot_set2[, i], x = meanNCortW)) +
+    geom_smooth(method = "lm") +
+    geom_point() + 
+    coord_fixed() +
+    theme_classic() +
+    labs(title = bquote(italic(r)^2 == .(r2W)),  
+         x = "Mean Awakening Cortisol", 
+         y = "Methylation Level")
+  
+  grid.arrange(annotate_figure(ggW, ggplot(alpha = 0), ggplot(alpha = 0),
+                               top = colnames(plot_set2)[i]),
+               ncol = 3)
+}
+```
+
+## DEG Predictors: Awakening Cortisol Scatterplots
+
+```{r, message = F, warning = F}
+# Setup
+# d_d <- d_save
+# plot_set2 <- cbind(d_d[c("id", "sex", "round", "age", 
+#                    "meanNCortB", "meanNCortW")], 
+#                    d_d[colnames(d_d) %in% CpG_set2$minCpG])
+# dim(plot_set2)
+plot_set2 <- plot_set2save
+
+# Scatterplots 
+for (i in 7:ncol(plot_set2)) {
+  r2W = format(summary(lm(plot_set2[, i] ~ meanNCortW,
+                         plot_set2))$r.squared,
+              digits = 3)
+
+  ggW <- ggplot(plot_set2,
+                aes(y = plot_set2[, i], x = meanNCortW)) +
+    geom_smooth(method = "lm") +
+    geom_point() + 
+    # coord_fixed() +
+    theme_classic() +
+    labs(title = bquote(italic(r)^2 == .(r2W)),  
+         x = "Mean Awakening Cortisol", 
+         y = "Expression Level")
+  
+  grid.arrange(annotate_figure(ggW, ggplot(alpha = 0), ggplot(alpha = 0),
+                               top = colnames(plot_set2)[i]),
+               ncol = 3)
+}
+```
+
+## Awakening Cortisol Predictions: 
+
+### Using CpG predictors
+
+Prepare the variables:
+```{r, message = F, warning = F}
+# Read in the data and prepare for cross validation
+d_d <- plot_set1save
+d_d$sex <- as.factor(d_d$sex)
+d_d$round <- as.factor(d_d$round)
+d_d$age <- as.numeric(d_d$age)
+d_d$cv_group <- 1:length(d_d$id)
+dim(d_d)
+```
+
+#### Leave-One-Out 
+
+##### Awakening Cortisol (Continuous):
+
+```{r, message = F, warning = F}
+d_b <- d_d %>%
+  dplyr::select(-one_of(c("id", "meanNCortB")))
+
+# Prepare for cv
+cv_results1 <- array(0,c(0,2))
+colnames(cv_results1) <- c("Observed","Predicted1")
+cv_results2 <- array(0,c(0,2))
+colnames(cv_results2) <- c("Observed","Predicted2")
+
+# Begin cv
+for (i in 1:length(d_b$cv_group))
+{
+  # allocate sample to the test and training sets
+  data_train <- d_b[d_b$cv_group != i, ]
+  data_test <- d_b[d_b$cv_group == i, ]
+  # multiple linear regression
+  fit1 <- glm(meanNCortW ~ sex + age + round, data = data_train)
+  fit2 <- glm(meanNCortW ~ .-cv_group, data = data_train)
+  
+  # predict meanNCortW on test set (cv_group == i)
+  cv_results1 <- rbind(cv_results1,
+                       data.frame(Observed = data_test$meanNCortW,
+                                  Predicted1 = predict(fit1, data_test)))
+  cv_results2 <- rbind(cv_results2,
+                       data.frame(Observed = data_test$meanNCortW,
+                                  Predicted2 = predict(fit2, data_test)))
+}
+
+# Graph: predicted vs. observed
+# Model1
+r2 <- format(summary(lm(Predicted1 ~ Observed,
+                       cv_results1))$r.squared,
+            digits = 3)
+p <- ggplot(data = cv_results1,
+            aes(y = Predicted1,
+                x = Observed))
+p + geom_smooth(method = "lm") +
+  geom_point() + 
+  coord_fixed() +
+  theme_classic() +
+  labs(title = "Awakening Cortisol (Model 1)", 
+       subtitle = bquote(italic(r)^2 == .(r2)),
+         x = "Observed Values", 
+         y = "Predicted Values") 
+
+# Model2
+r2 <- format(summary(lm(Predicted2 ~ Observed,
+                       cv_results2))$r.squared,
+            digits = 3)
+q <- ggplot(data = cv_results2,
+            aes(y = Predicted2,
+                x = Observed))
+q + geom_smooth(method = "lm") +
+  geom_point() + 
+  coord_fixed() +   
+  theme_classic() +
+  labs(title = "Awakening Cortisol (Model 2)", 
+       subtitle = bquote(italic(r)^2 == .(r2)),
+         x = "Observed Values", 
+         y = "Predicted Values")
+```
+
+##### Awakening Cortisol (Dichotomous, Logistic Regression):
+
+```{r, message = F, warning = F}
+d_bb <- d_b
+d_bb$meanNCortW <- factor(d_bb$meanNCortW >= median(d_bb$meanNCortW))
+
+cv_results1 <- array(0,c(0,2))
+colnames(cv_results1) <- c("Observed","Predicted1")
+cv_results2 <- array(0,c(0,2))
+colnames(cv_results2) <- c("Observed","Predicted2")
+
+# Begin cv
+for (i in 1:length(d_bb$cv_group))
+{
+  # allocate sample to the test and training sets
+  data_train <- d_bb[d_bb$cv_group != i, ]
+  data_test <- d_bb[d_bb$cv_group == i, ]
+  # logistic regression
+  fit1 <- glm(meanNCortW ~ sex + age + round, data = data_train, 
+              family = "binomial")
+  fit2 <- glm(meanNCortW ~ .-cv_group, data = data_train,
+              family = "binomial")
+  
+  # predict meanNCortW on test set (cv_group == i)
+  cv_results1 <- rbind(cv_results1,
+                       data.frame(Observed = data_test$meanNCortW,
+                                  Predicted1 = predict(fit1, data_test, 
+                                                       type = "response")))
+  cv_results2 <- rbind(cv_results2,
+                       data.frame(Observed = data_test$meanNCortW,
+                                  Predicted2 = predict(fit2, data_test,
+                                                       type = "response")))
+}
+
+# ROC
+# Model1
+pred1 <- prediction(cv_results1$Predicted1, cv_results1$Observed)
+perf1 <- performance(pred1, "tpr", "fpr" )
+plot(perf1, colorize = T, main = "Awakening Cortisol (Model 1 Logistic Regression)")
+# AUC
+performance(pred1, "auc")@y.values
+# opt cut
+print(opt.cut(perf1, pred1))
+
+# Model2
+pred2 <- prediction(cv_results2$Predicted2, cv_results2$Observed)
+perf2 <- performance(pred2, "tpr", "fpr" )
+plot(perf2, colorize = T, main = "Awakening Cortisol (Model 2 Logistic Regression)")
+# AUC
+performance(pred2, "auc")@y.values
+# opt cut
+print(opt.cut(perf2, pred2))
+```
+
+##### Awakening Cortisol (Dichotomous, Random Forest):
+
+```{r, message = F, warning = F}
+d_bb <- d_b
+d_bb$meanNCortW <- factor(d_bb$meanNCortW >= median(d_bb$meanNCortW))
+
+cv_results1 <- array(0,c(0,2))
+colnames(cv_results1) <- c("Observed","Predicted1")
+cv_results2 <- array(0,c(0,2))
+colnames(cv_results2) <- c("Observed","Predicted2")
+
+# Begin cv
+set.seed(2)
+for (i in 1:length(d_bb$cv_group))
+{
+  # allocate sample to the test and training sets
+  data_train <- d_bb[d_bb$cv_group != i, ]
+  data_test <- d_bb[d_bb$cv_group == i, ]
+  # random forest
+  fit1 <- randomForest(meanNCortW ~ sex + age + round, data = data_train, 
+                       ntree = 500, mtry = 2)
+  fit2 <- randomForest(meanNCortW ~ .-cv_group, data = data_train, 
+                       ntree = 500, mtry = 4)
+  
+  # predict meanNCortW on test set (cv_group == i)
+  cv_results1 <- rbind(cv_results1,
+                       data.frame(Observed = data_test$meanNCortW,
+                                  Predicted1 = predict(fit1, data_test, 
+                                                       type = "prob")[, 2]))
+  cv_results2 <- rbind(cv_results2,
+                       data.frame(Observed = data_test$meanNCortW,
+                                  Predicted2 = predict(fit2, data_test,
+                                                       type = "prob")[, 2]))
+}
+
+# Classification error rate
+# mean(cv_results1$Observed == cv_results1$Predicted1)
+# mean(cv_results2$Observed == cv_results2$Predicted2)
+
+# ROC
+# Model1
+pred1 <- prediction(cv_results1$Predicted1, cv_results1$Observed)
+perf1 <- performance(pred1, "tpr", "fpr" )
+plot(perf1, colorize = T, main = "Awakening Cortisol (Model 1 Random Forest)")
+# AUC
+performance(pred1, "auc")@y.values
+# opt cut
+print(opt.cut(perf1, pred1))
+
+# Model2
+pred2 <- prediction(cv_results2$Predicted2, cv_results2$Observed)
+perf2 <- performance(pred2, "tpr", "fpr" )
+plot(perf2, colorize = T, main = "Awakening Cortisol (Model 2 Random Forest)")
+# AUC
+performance(pred2, "auc")@y.values
+# opt cut
+print(opt.cut(perf2, pred2))
+```
+
+#### All Samples (n = 77)
+
+##### Awakening Cortisol (Continuous):
+
+```{r, message = F, warning = F}
+d_b <- d_d %>%
+  dplyr::select(-one_of(c("id", "cv_group", "meanNCortB")))
+
+# Prepare for prediction
+results1 <- array(0,c(0,2))
+colnames(results1) <- c("Observed","Predicted1")
+results2 <- array(0,c(0,2))
+colnames(results2) <- c("Observed","Predicted2")
+
+# Begin prediction
+  # multiple linear regression
+  fit1 <- glm(meanNCortW ~ sex + age + round, data = d_b)
+  fit2 <- glm(meanNCortW ~ . , data = d_b)
+  
+  # predict meanNCortW
+  results1 <- rbind(results1,
+                    data.frame(Observed = d_b$meanNCortW,
+                               Predicted1 = predict(fit1, d_b)))
+  results2 <- rbind(results2,
+                    data.frame(Observed = d_b$meanNCortW,
+                               Predicted2 = predict(fit2, d_b)))
+
+# Graph: predicted vs. observed
+# Model1
+r2 <- format(summary(lm(Predicted1 ~ Observed,
+                       results1))$r.squared,
+            digits = 3)
+p <- ggplot(data = results1,
+            aes(y = Predicted1,
+                x = Observed))
+p + geom_smooth(method = "lm") +
+  geom_point() + 
+  coord_fixed() +
+  theme_classic() +
+  labs(title = "Awakening Cortisol (Model 1)", 
+       subtitle = bquote(italic(r)^2 == .(r2)),
+         x = "Observed Values", 
+         y = "Predicted Values") 
+
+# Model2
+r2 <- format(summary(lm(Predicted2 ~ Observed,
+                       results2))$r.squared,
+            digits = 3)
+q <- ggplot(data = results2,
+            aes(y = Predicted2,
+                x = Observed))
+q + geom_smooth(method = "lm") +
+  geom_point() + 
+  coord_fixed() +   
+  theme_classic() +
+  labs(title = "Awakening Cortisol (Model 2)", 
+       subtitle = bquote(italic(r)^2 == .(r2)),
+         x = "Observed Values", 
+         y = "Predicted Values")
+```
+
+##### Awakening Cortisol (Dichotomous, Logistic Regression):
+
+```{r, message = F, warning = F}
+d_bb <- d_b
+d_bb$meanNCortW <- factor(d_bb$meanNCortW >= median(d_bb$meanNCortW))
+
+results1 <- array(0,c(0,2))
+colnames(results1) <- c("Observed","Predicted1")
+results2 <- array(0,c(0,2))
+colnames(results2) <- c("Observed","Predicted2")
+
+# Begin prediction
+  # logistic regression
+  fit1 <- glm(meanNCortW ~ sex + age + round, data = d_bb, 
+              family = "binomial")
+  fit2 <- glm(meanNCortW ~ . , data = d_bb,
+              family = "binomial")
+  
+  # predict meanNCortW
+  results1 <- rbind(results1,
+                    data.frame(Observed = d_bb$meanNCortW,
+                               Predicted1 = predict(fit1, d_bb, 
+                                                    type = "response")))
+  results2 <- rbind(results2,
+                    data.frame(Observed = d_bb$meanNCortW,
+                               Predicted2 = predict(fit2, d_bb,
+                                                    type = "response")))
+
+# ROC
+# Model1
+pred1 <- prediction(results1$Predicted1, results1$Observed)
+perf1 <- performance(pred1, "tpr", "fpr" )
+plot(perf1, colorize = T, main = "Awakening Cortisol (Model 1 Logistic Regression)")
+# AUC
+performance(pred1, "auc")@y.values
+# opt cut
+print(opt.cut(perf1, pred1))
+
+# Model2
+pred2 <- prediction(results2$Predicted2, results2$Observed)
+perf2 <- performance(pred2, "tpr", "fpr" )
+plot(perf2, colorize = T, main = "Awakening Cortisol (Model 2 Logistic Regression)")
+# AUC
+performance(pred2, "auc")@y.values
+# opt cut
+print(opt.cut(perf2, pred2))
+```
+
+##### Awakening Cortisol (Dichotomous, Random Forest):
+
+```{r, message = F, warning = F}
+d_bb <- d_b
+d_bb$meanNCortW <- factor(d_bb$meanNCortW >= median(d_bb$meanNCortW))
+
+results1 <- array(0,c(0,2))
+colnames(results1) <- c("Observed","Predicted1")
+results2 <- array(0,c(0,2))
+colnames(results2) <- c("Observed","Predicted2")
+
+# Begin prediction
+  # random forest
+set.seed(2)
+  fit1 <- randomForest(meanNCortW ~ sex + age + round, data = d_bb, 
+                       ntree = 500, mtry = 2, importance = T)
+  fit2 <- randomForest(meanNCortW ~ . , data = d_bb, 
+                       ntree = 500, mtry = 4, importance = T)
+  
+  # predict meanNCortW on test set
+  results1 <- rbind(results1,
+                       data.frame(Observed = d_bb$meanNCortW,
+                                  Predicted1 = predict(fit1, d_bb, 
+                                                       type = "prob")[, 2]))
+  results2 <- rbind(results2,
+                       data.frame(Observed = d_bb$meanNCortW,
+                                  Predicted2 = predict(fit2, d_bb,
+                                                       type = "prob")[, 2]))
+  
+varImpPlot(fit1, main = "Awakening Cortisol (Model 1 Random Forest)")
+varImpPlot(fit2, main = "Awakening Cortisol (Model 2 Random Forest)")
+
+# Classification error rate
+# mean(results1$Observed == results1$Predicted1)
+# mean(results2$Observed == results2$Predicted2)
+
+# ROC
+# Model1
+pred1 <- prediction(results1$Predicted1, results1$Observed)
+perf1 <- performance(pred1, "tpr", "fpr" )
+plot(perf1, colorize = T, main = "Awakening Cortisol (Model 1 Random Forest)")
+# AUC
+performance(pred1, "auc")@y.values
+# opt cut
+print(opt.cut(perf1, pred1))
+
+# Model2
+pred2 <- prediction(results2$Predicted2, results2$Observed)
+perf2 <- performance(pred2, "tpr", "fpr" )
+plot(perf2, colorize = T, main = "Awakening Cortisol (Model 2 Random Forest)")
+# AUC
+performance(pred2, "auc")@y.values
+# opt cut
+print(opt.cut(perf2, pred2))
+```
+
+### Using DEG predictors
+
+Prepare the variables:
+```{r, message = F, warning = F}
+# Read in the data and prepare for cross validation
+d_d <- plot_set2save
+d_d$sex <- as.factor(d_d$sex)
+d_d$round <- as.factor(d_d$round)
+d_d$age <- as.numeric(d_d$age)
+d_d$cv_group <- 1:length(d_d$id)
+dim(d_d)
+```
+
+#### Leave-One-Out 
+
+##### Awakening Cortisol (Continuous):
+
+```{r, message = F, warning = F}
+d_b <- d_d %>%
+  dplyr::select(-one_of(c("id", "meanNCortB")))
+
+# Prepare for cv
+cv_results1 <- array(0,c(0,2))
+colnames(cv_results1) <- c("Observed","Predicted1")
+cv_results2 <- array(0,c(0,2))
+colnames(cv_results2) <- c("Observed","Predicted2")
+
+# Begin cv
+for (i in 1:length(d_b$cv_group))
+{
+  # allocate sample to the test and training sets
+  data_train <- d_b[d_b$cv_group != i, ]
+  data_test <- d_b[d_b$cv_group == i, ]
+  # multiple linear regression
+  fit1 <- glm(meanNCortW ~ sex + age + round, data = data_train)
+  fit2 <- glm(meanNCortW ~ .-cv_group, data = data_train)
+  
+  # predict meanNCortW on test set (cv_group == i)
+  cv_results1 <- rbind(cv_results1,
+                       data.frame(Observed = data_test$meanNCortW,
+                                  Predicted1 = predict(fit1, data_test)))
+  cv_results2 <- rbind(cv_results2,
+                       data.frame(Observed = data_test$meanNCortW,
+                                  Predicted2 = predict(fit2, data_test)))
+}
+
+# Graph: predicted vs. observed
+# Model1
+r2 <- format(summary(lm(Predicted1 ~ Observed,
+                       cv_results1))$r.squared,
+            digits = 3)
+p <- ggplot(data = cv_results1,
+            aes(y = Predicted1,
+                x = Observed))
+p + geom_smooth(method = "lm") +
+  geom_point() + 
+  coord_fixed() +
+  theme_classic() +
+  labs(title = "Awakening Cortisol (Model 1)", 
+       subtitle = bquote(italic(r)^2 == .(r2)),
+         x = "Observed Values", 
+         y = "Predicted Values") 
+
+# Model2
+r2 <- format(summary(lm(Predicted2 ~ Observed,
+                       cv_results2))$r.squared,
+            digits = 3)
+q <- ggplot(data = cv_results2,
+            aes(y = Predicted2,
+                x = Observed))
+q + geom_smooth(method = "lm") +
+  geom_point() + 
+  coord_fixed() +   
+  theme_classic() +
+  labs(title = "Awakening Cortisol (Model 2)", 
+       subtitle = bquote(italic(r)^2 == .(r2)),
+         x = "Observed Values", 
+         y = "Predicted Values")
+```
+
+##### Awakening Cortisol (Dichotomous, Logistic Regression):
+
+```{r, message = F, warning = F}
+d_bb <- d_b
+d_bb$meanNCortW <- factor(d_bb$meanNCortW >= median(d_bb$meanNCortW))
+
+cv_results1 <- array(0,c(0,2))
+colnames(cv_results1) <- c("Observed","Predicted1")
+cv_results2 <- array(0,c(0,2))
+colnames(cv_results2) <- c("Observed","Predicted2")
+
+# Begin cv
+for (i in 1:length(d_bb$cv_group))
+{
+  # allocate sample to the test and training sets
+  data_train <- d_bb[d_bb$cv_group != i, ]
+  data_test <- d_bb[d_bb$cv_group == i, ]
+  # logistic regression
+  fit1 <- glm(meanNCortW ~ sex + age + round, data = data_train, 
+              family = "binomial")
+  fit2 <- glm(meanNCortW ~ .-cv_group, data = data_train,
+              family = "binomial")
+  
+  # predict meanNCortW on test set (cv_group == i)
+  cv_results1 <- rbind(cv_results1,
+                       data.frame(Observed = data_test$meanNCortW,
+                                  Predicted1 = predict(fit1, data_test, 
+                                                       type = "response")))
+  cv_results2 <- rbind(cv_results2,
+                       data.frame(Observed = data_test$meanNCortW,
+                                  Predicted2 = predict(fit2, data_test,
+                                                       type = "response")))
+}
+
+# ROC
+# Model1
+pred1 <- prediction(cv_results1$Predicted1, cv_results1$Observed)
+perf1 <- performance(pred1, "tpr", "fpr" )
+plot(perf1, colorize = T, main = "Awakening Cortisol (Model 1 Logistic Regression)")
+# AUC
+performance(pred1, "auc")@y.values
+# opt cut
+print(opt.cut(perf1, pred1))
+
+# Model2
+pred2 <- prediction(cv_results2$Predicted2, cv_results2$Observed)
+perf2 <- performance(pred2, "tpr", "fpr" )
+plot(perf2, colorize = T, main = "Awakening Cortisol (Model 2 Logistic Regression)")
+# AUC
+performance(pred2, "auc")@y.values
+# opt cut
+print(opt.cut(perf2, pred2))
+```
+
+##### Awakening Cortisol (Dichotomous, Random Forest):
+
+```{r, message = F, warning = F}
+d_bb <- d_b
+d_bb$meanNCortW <- factor(d_bb$meanNCortW >= median(d_bb$meanNCortW))
+
+cv_results1 <- array(0,c(0,2))
+colnames(cv_results1) <- c("Observed","Predicted1")
+cv_results2 <- array(0,c(0,2))
+colnames(cv_results2) <- c("Observed","Predicted2")
+
+# Begin cv
+set.seed(2)
+for (i in 1:length(d_bb$cv_group))
+{
+  # allocate sample to the test and training sets
+  data_train <- d_bb[d_bb$cv_group != i, ]
+  data_test <- d_bb[d_bb$cv_group == i, ]
+  # random forest
+  fit1 <- randomForest(meanNCortW ~ sex + age + round, data = data_train, 
+                       ntree = 500, mtry = 2)
+  fit2 <- randomForest(meanNCortW ~ .-cv_group, data = data_train, 
+                       ntree = 500, mtry = 4)
+  
+  # predict meanNCortW on test set (cv_group == i)
+  cv_results1 <- rbind(cv_results1,
+                       data.frame(Observed = data_test$meanNCortW,
+                                  Predicted1 = predict(fit1, data_test, 
+                                                       type = "prob")[, 2]))
+  cv_results2 <- rbind(cv_results2,
+                       data.frame(Observed = data_test$meanNCortW,
+                                  Predicted2 = predict(fit2, data_test,
+                                                       type = "prob")[, 2]))
+}
+
+# Classification error rate
+# mean(cv_results1$Observed == cv_results1$Predicted1)
+# mean(cv_results2$Observed == cv_results2$Predicted2)
+
+# ROC
+# Model1
+pred1 <- prediction(cv_results1$Predicted1, cv_results1$Observed)
+perf1 <- performance(pred1, "tpr", "fpr" )
+plot(perf1, colorize = T, main = "Awakening Cortisol (Model 1 Random Forest)")
+# AUC
+performance(pred1, "auc")@y.values
+# opt cut
+print(opt.cut(perf1, pred1))
+
+# Model2
+pred2 <- prediction(cv_results2$Predicted2, cv_results2$Observed)
+perf2 <- performance(pred2, "tpr", "fpr" )
+plot(perf2, colorize = T, main = "Awakening Cortisol (Model 2 Random Forest)")
+# AUC
+performance(pred2, "auc")@y.values
+# opt cut
+print(opt.cut(perf2, pred2))
+```
+
+#### All Samples (n = 77)
+
+##### Awakening Cortisol (Continuous):
+
+```{r, message = F, warning = F}
+d_b <- d_d %>%
+  dplyr::select(-one_of(c("id", "cv_group", "meanNCortB")))
+
+# Prepare for prediction
+results1 <- array(0,c(0,2))
+colnames(results1) <- c("Observed","Predicted1")
+results2 <- array(0,c(0,2))
+colnames(results2) <- c("Observed","Predicted2")
+
+# Begin prediction
+  # multiple linear regression
+  fit1 <- glm(meanNCortW ~ sex + age + round, data = d_b)
+  fit2 <- glm(meanNCortW ~ . , data = d_b)
+  
+  # predict meanNCortW
+  results1 <- rbind(results1,
+                    data.frame(Observed = d_b$meanNCortW,
+                               Predicted1 = predict(fit1, d_b)))
+  results2 <- rbind(results2,
+                    data.frame(Observed = d_b$meanNCortW,
+                               Predicted2 = predict(fit2, d_b)))
+
+# Graph: predicted vs. observed
+# Model1
+r2 <- format(summary(lm(Predicted1 ~ Observed,
+                       results1))$r.squared,
+            digits = 3)
+p <- ggplot(data = results1,
+            aes(y = Predicted1,
+                x = Observed))
+p + geom_smooth(method = "lm") +
+  geom_point() + 
+  coord_fixed() +
+  theme_classic() +
+  labs(title = "Awakening Cortisol (Model 1)", 
+       subtitle = bquote(italic(r)^2 == .(r2)),
+         x = "Observed Values", 
+         y = "Predicted Values") 
+
+# Model2
+r2 <- format(summary(lm(Predicted2 ~ Observed,
+                       results2))$r.squared,
+            digits = 3)
+q <- ggplot(data = results2,
+            aes(y = Predicted2,
+                x = Observed))
+q + geom_smooth(method = "lm") +
+  geom_point() + 
+  coord_fixed() +   
+  theme_classic() +
+  labs(title = "Awakening Cortisol (Model 2)", 
+       subtitle = bquote(italic(r)^2 == .(r2)),
+         x = "Observed Values", 
+         y = "Predicted Values")
+```
+
+##### Awakening Cortisol (Dichotomous, Logistic Regression):
+
+```{r, message = F, warning = F}
+d_bb <- d_b
+d_bb$meanNCortW <- factor(d_bb$meanNCortW >= median(d_bb$meanNCortW))
+
+results1 <- array(0,c(0,2))
+colnames(results1) <- c("Observed","Predicted1")
+results2 <- array(0,c(0,2))
+colnames(results2) <- c("Observed","Predicted2")
+
+# Begin prediction
+  # logistic regression
+  fit1 <- glm(meanNCortW ~ sex + age + round, data = d_bb, 
+              family = "binomial")
+  fit2 <- glm(meanNCortW ~ . , data = d_bb,
+              family = "binomial")
+  
+  # predict meanNCortW
+  results1 <- rbind(results1,
+                    data.frame(Observed = d_bb$meanNCortW,
+                               Predicted1 = predict(fit1, d_bb, 
+                                                    type = "response")))
+  results2 <- rbind(results2,
+                    data.frame(Observed = d_bb$meanNCortW,
+                               Predicted2 = predict(fit2, d_bb,
+                                                    type = "response")))
+
+# ROC
+# Model1
+pred1 <- prediction(results1$Predicted1, results1$Observed)
+perf1 <- performance(pred1, "tpr", "fpr" )
+plot(perf1, colorize = T, main = "Awakening Cortisol (Model 1 Logistic Regression)")
+# AUC
+performance(pred1, "auc")@y.values
+# opt cut
+print(opt.cut(perf1, pred1))
+
+# Model2
+pred2 <- prediction(results2$Predicted2, results2$Observed)
+perf2 <- performance(pred2, "tpr", "fpr" )
+plot(perf2, colorize = T, main = "Awakening Cortisol (Model 2 Logistic Regression)")
+# AUC
+performance(pred2, "auc")@y.values
+# opt cut
+print(opt.cut(perf2, pred2))
+```
+
+##### Awakening Cortisol (Dichotomous, Random Forest):
+
+```{r, message = F, warning = F}
+d_bb <- d_b
+d_bb$meanNCortW <- factor(d_bb$meanNCortW >= median(d_bb$meanNCortW))
+
+results1 <- array(0,c(0,2))
+colnames(results1) <- c("Observed","Predicted1")
+results2 <- array(0,c(0,2))
+colnames(results2) <- c("Observed","Predicted2")
+
+# Begin prediction
+  # random forest
+set.seed(2)
+  fit1 <- randomForest(meanNCortW ~ sex + age + round, data = d_bb, 
+                       ntree = 500, mtry = 2, importance = T)
+  fit2 <- randomForest(meanNCortW ~ . , data = d_bb, 
+                       ntree = 500, mtry = 4, importance = T)
+  
+  # predict meanNCortW on test set
+  results1 <- rbind(results1,
+                       data.frame(Observed = d_bb$meanNCortW,
+                                  Predicted1 = predict(fit1, d_bb, 
+                                                       type = "prob")[, 2]))
+  results2 <- rbind(results2,
+                       data.frame(Observed = d_bb$meanNCortW,
+                                  Predicted2 = predict(fit2, d_bb,
+                                                       type = "prob")[, 2]))
+  
+varImpPlot(fit1, main = "Awakening Cortisol (Model 1 Random Forest)")
+varImpPlot(fit2, main = "Awakening Cortisol (Model 2 Random Forest)")
+
+# Classification error rate
+# mean(results1$Observed == results1$Predicted1)
+# mean(results2$Observed == results2$Predicted2)
+
+# ROC
+# Model1
+pred1 <- prediction(results1$Predicted1, results1$Observed)
+perf1 <- performance(pred1, "tpr", "fpr" )
+plot(perf1, colorize = T, main = "Awakening Cortisol (Model 1 Random Forest)")
+# AUC
+performance(pred1, "auc")@y.values
+# opt cut
+print(opt.cut(perf1, pred1))
+
+# Model2
+pred2 <- prediction(results2$Predicted2, results2$Observed)
+perf2 <- performance(pred2, "tpr", "fpr" )
+plot(perf2, colorize = T, main = "Awakening Cortisol (Model 2 Random Forest)")
+# AUC
+performance(pred2, "auc")@y.values
+# opt cut
+print(opt.cut(perf2, pred2))
+```
+
+### Using combined CpG and DEG predictors
+
+Prepare the variables:
+```{r, message = F, warning = F}
+# Read in the data and prepare for cross validation
+d_d <- merge(plot_set1save, plot_set2save[-c(2:6)], by = "id")
+d_d$sex <- as.factor(d_d$sex)
+d_d$round <- as.factor(d_d$round)
+d_d$age <- as.numeric(d_d$age)
+d_d$cv_group <- 1:length(d_d$id)
+dim(d_d)
+```
+
+#### Leave-One-Out 
+
+##### Awakening Cortisol (Continuous):
+
+```{r, message = F, warning = F}
+d_b <- d_d %>%
+  dplyr::select(-one_of(c("id", "meanNCortB")))
+
+# Prepare for cv
+cv_results1 <- array(0,c(0,2))
+colnames(cv_results1) <- c("Observed","Predicted1")
+cv_results2 <- array(0,c(0,2))
+colnames(cv_results2) <- c("Observed","Predicted2")
+
+# Begin cv
+for (i in 1:length(d_b$cv_group))
+{
+  # allocate sample to the test and training sets
+  data_train <- d_b[d_b$cv_group != i, ]
+  data_test <- d_b[d_b$cv_group == i, ]
+  # multiple linear regression
+  fit1 <- glm(meanNCortW ~ sex + age + round, data = data_train)
+  fit2 <- glm(meanNCortW ~ .-cv_group, data = data_train)
+  
+  # predict meanNCortW on test set (cv_group == i)
+  cv_results1 <- rbind(cv_results1,
+                       data.frame(Observed = data_test$meanNCortW,
+                                  Predicted1 = predict(fit1, data_test)))
+  cv_results2 <- rbind(cv_results2,
+                       data.frame(Observed = data_test$meanNCortW,
+                                  Predicted2 = predict(fit2, data_test)))
+}
+
+# Graph: predicted vs. observed
+# Model1
+r2 <- format(summary(lm(Predicted1 ~ Observed,
+                       cv_results1))$r.squared,
+            digits = 3)
+p <- ggplot(data = cv_results1,
+            aes(y = Predicted1,
+                x = Observed))
+p + geom_smooth(method = "lm") +
+  geom_point() + 
+  coord_fixed() +
+  theme_classic() +
+  labs(title = "Awakening Cortisol (Model 1)", 
+       subtitle = bquote(italic(r)^2 == .(r2)),
+         x = "Observed Values", 
+         y = "Predicted Values") 
+
+# Model2
+r2 <- format(summary(lm(Predicted2 ~ Observed,
+                       cv_results2))$r.squared,
+            digits = 3)
+q <- ggplot(data = cv_results2,
+            aes(y = Predicted2,
+                x = Observed))
+q + geom_smooth(method = "lm") +
+  geom_point() + 
+  coord_fixed() +   
+  theme_classic() +
+  labs(title = "Awakening Cortisol (Model 2)", 
+       subtitle = bquote(italic(r)^2 == .(r2)),
+         x = "Observed Values", 
+         y = "Predicted Values")
+```
+
+##### Awakening Cortisol (Dichotomous, Logistic Regression):
+
+```{r, message = F, warning = F}
+d_bb <- d_b
+d_bb$meanNCortW <- factor(d_bb$meanNCortW >= median(d_bb$meanNCortW))
+
+cv_results1 <- array(0,c(0,2))
+colnames(cv_results1) <- c("Observed","Predicted1")
+cv_results2 <- array(0,c(0,2))
+colnames(cv_results2) <- c("Observed","Predicted2")
+
+# Begin cv
+for (i in 1:length(d_bb$cv_group))
+{
+  # allocate sample to the test and training sets
+  data_train <- d_bb[d_bb$cv_group != i, ]
+  data_test <- d_bb[d_bb$cv_group == i, ]
+  # logistic regression
+  fit1 <- glm(meanNCortW ~ sex + age + round, data = data_train, 
+              family = "binomial")
+  fit2 <- glm(meanNCortW ~ .-cv_group, data = data_train,
+              family = "binomial")
+  
+  # predict meanNCortW on test set (cv_group == i)
+  cv_results1 <- rbind(cv_results1,
+                       data.frame(Observed = data_test$meanNCortW,
+                                  Predicted1 = predict(fit1, data_test, 
+                                                       type = "response")))
+  cv_results2 <- rbind(cv_results2,
+                       data.frame(Observed = data_test$meanNCortW,
+                                  Predicted2 = predict(fit2, data_test,
+                                                       type = "response")))
+}
+
+# ROC
+# Model1
+pred1 <- prediction(cv_results1$Predicted1, cv_results1$Observed)
+perf1 <- performance(pred1, "tpr", "fpr" )
+plot(perf1, colorize = T, main = "Awakening Cortisol (Model 1 Logistic Regression)")
+# AUC
+performance(pred1, "auc")@y.values
+# opt cut
+print(opt.cut(perf1, pred1))
+
+# Model2
+pred2 <- prediction(cv_results2$Predicted2, cv_results2$Observed)
+perf2 <- performance(pred2, "tpr", "fpr" )
+plot(perf2, colorize = T, main = "Awakening Cortisol (Model 2 Logistic Regression)")
+# AUC
+performance(pred2, "auc")@y.values
+# opt cut
+print(opt.cut(perf2, pred2))
+```
+
+##### Awakening Cortisol (Dichotomous, Random Forest):
+
+```{r, message = F, warning = F}
+d_bb <- d_b
+d_bb$meanNCortW <- factor(d_bb$meanNCortW >= median(d_bb$meanNCortW))
+
+cv_results1 <- array(0,c(0,2))
+colnames(cv_results1) <- c("Observed","Predicted1")
+cv_results2 <- array(0,c(0,2))
+colnames(cv_results2) <- c("Observed","Predicted2")
+
+# Begin cv
+set.seed(2)
+for (i in 1:length(d_bb$cv_group))
+{
+  # allocate sample to the test and training sets
+  data_train <- d_bb[d_bb$cv_group != i, ]
+  data_test <- d_bb[d_bb$cv_group == i, ]
+  # random forest
+  fit1 <- randomForest(meanNCortW ~ sex + age + round, data = data_train, 
+                       ntree = 500, mtry = 2)
+  fit2 <- randomForest(meanNCortW ~ .-cv_group, data = data_train, 
+                       ntree = 500, mtry = 4)
+  
+  # predict meanNCortW on test set (cv_group == i)
+  cv_results1 <- rbind(cv_results1,
+                       data.frame(Observed = data_test$meanNCortW,
+                                  Predicted1 = predict(fit1, data_test, 
+                                                       type = "prob")[, 2]))
+  cv_results2 <- rbind(cv_results2,
+                       data.frame(Observed = data_test$meanNCortW,
+                                  Predicted2 = predict(fit2, data_test,
+                                                       type = "prob")[, 2]))
+}
+
+# Classification error rate
+# mean(cv_results1$Observed == cv_results1$Predicted1)
+# mean(cv_results2$Observed == cv_results2$Predicted2)
+
+# ROC
+# Model1
+pred1 <- prediction(cv_results1$Predicted1, cv_results1$Observed)
+perf1 <- performance(pred1, "tpr", "fpr" )
+plot(perf1, colorize = T, main = "Awakening Cortisol (Model 1 Random Forest)")
+# AUC
+performance(pred1, "auc")@y.values
+# opt cut
+print(opt.cut(perf1, pred1))
+
+# Model2
+pred2 <- prediction(cv_results2$Predicted2, cv_results2$Observed)
+perf2 <- performance(pred2, "tpr", "fpr" )
+plot(perf2, colorize = T, main = "Awakening Cortisol (Model 2 Random Forest)")
+# AUC
+performance(pred2, "auc")@y.values
+# opt cut
+print(opt.cut(perf2, pred2))
+```
+
+#### All Samples (n = 71)
+
+##### Awakening Cortisol (Continuous):
+
+```{r, message = F, warning = F}
+d_b <- d_d %>%
+  dplyr::select(-one_of(c("id", "cv_group", "meanNCortB")))
+
+# Prepare for prediction
+results1 <- array(0,c(0,2))
+colnames(results1) <- c("Observed","Predicted1")
+results2 <- array(0,c(0,2))
+colnames(results2) <- c("Observed","Predicted2")
+
+# Begin prediction
+  # multiple linear regression
+  fit1 <- glm(meanNCortW ~ sex + age + round, data = d_b)
+  fit2 <- glm(meanNCortW ~ . , data = d_b)
+  
+  # predict meanNCortW
+  results1 <- rbind(results1,
+                    data.frame(Observed = d_b$meanNCortW,
+                               Predicted1 = predict(fit1, d_b)))
+  results2 <- rbind(results2,
+                    data.frame(Observed = d_b$meanNCortW,
+                               Predicted2 = predict(fit2, d_b)))
+
+# Graph: predicted vs. observed
+# Model1
+r2 <- format(summary(lm(Predicted1 ~ Observed,
+                       results1))$r.squared,
+            digits = 3)
+p <- ggplot(data = results1,
+            aes(y = Predicted1,
+                x = Observed))
+p + geom_smooth(method = "lm") +
+  geom_point() + 
+  coord_fixed() +
+  theme_classic() +
+  labs(title = "Awakening Cortisol (Model 1)", 
+       subtitle = bquote(italic(r)^2 == .(r2)),
+         x = "Observed Values", 
+         y = "Predicted Values") 
+
+# Model2
+r2 <- format(summary(lm(Predicted2 ~ Observed,
+                       results2))$r.squared,
+            digits = 3)
+q <- ggplot(data = results2,
+            aes(y = Predicted2,
+                x = Observed))
+q + geom_smooth(method = "lm") +
+  geom_point() + 
+  coord_fixed() +   
+  theme_classic() +
+  labs(title = "Awakening Cortisol (Model 2)", 
+       subtitle = bquote(italic(r)^2 == .(r2)),
+         x = "Observed Values", 
+         y = "Predicted Values")
+```
+
+##### Awakening Cortisol (Dichotomous, Logistic Regression):
+
+```{r, message = F, warning = F}
+d_bb <- d_b
+d_bb$meanNCortW <- factor(d_bb$meanNCortW >= median(d_bb$meanNCortW))
+
+results1 <- array(0,c(0,2))
+colnames(results1) <- c("Observed","Predicted1")
+results2 <- array(0,c(0,2))
+colnames(results2) <- c("Observed","Predicted2")
+
+# Begin prediction
+  # logistic regression
+  fit1 <- glm(meanNCortW ~ sex + age + round, data = d_bb, 
+              family = "binomial")
+  fit2 <- glm(meanNCortW ~ . , data = d_bb,
+              family = "binomial")
+  
+  # predict meanNCortW
+  results1 <- rbind(results1,
+                    data.frame(Observed = d_bb$meanNCortW,
+                               Predicted1 = predict(fit1, d_bb, 
+                                                    type = "response")))
+  results2 <- rbind(results2,
+                    data.frame(Observed = d_bb$meanNCortW,
+                               Predicted2 = predict(fit2, d_bb,
+                                                    type = "response")))
+
+# ROC
+# Model1
+pred1 <- prediction(results1$Predicted1, results1$Observed)
+perf1 <- performance(pred1, "tpr", "fpr" )
+plot(perf1, colorize = T, main = "Awakening Cortisol (Model 1 Logistic Regression)")
+# AUC
+performance(pred1, "auc")@y.values
+# opt cut
+print(opt.cut(perf1, pred1))
+
+# Model2
+pred2 <- prediction(results2$Predicted2, results2$Observed)
+perf2 <- performance(pred2, "tpr", "fpr" )
+plot(perf2, colorize = T, main = "Awakening Cortisol (Model 2 Logistic Regression)")
+# AUC
+performance(pred2, "auc")@y.values
+# opt cut
+print(opt.cut(perf2, pred2))
+```
+
+##### Awakening Cortisol (Dichotomous, Random Forest):
+
+```{r, message = F, warning = F}
+d_bb <- d_b
+d_bb$meanNCortW <- factor(d_bb$meanNCortW >= median(d_bb$meanNCortW))
+
+results1 <- array(0,c(0,2))
+colnames(results1) <- c("Observed","Predicted1")
+results2 <- array(0,c(0,2))
+colnames(results2) <- c("Observed","Predicted2")
+
+# Begin prediction
+  # random forest
+set.seed(2)
+  fit1 <- randomForest(meanNCortW ~ sex + age + round, data = d_bb, 
+                       ntree = 500, mtry = 2, importance = T)
+  fit2 <- randomForest(meanNCortW ~ . , data = d_bb, 
+                       ntree = 500, mtry = 4, importance = T)
+  
+  # predict meanNCortW on test set
+  results1 <- rbind(results1,
+                       data.frame(Observed = d_bb$meanNCortW,
+                                  Predicted1 = predict(fit1, d_bb, 
+                                                       type = "prob")[, 2]))
+  results2 <- rbind(results2,
+                       data.frame(Observed = d_bb$meanNCortW,
+                                  Predicted2 = predict(fit2, d_bb,
+                                                       type = "prob")[, 2]))
+  
+varImpPlot(fit1, main = "Awakening Cortisol (Model 1 Random Forest)")
+varImpPlot(fit2, main = "Awakening Cortisol (Model 2 Random Forest)")
+
+# Classification error rate
+# mean(results1$Observed == results1$Predicted1)
+# mean(results2$Observed == results2$Predicted2)
+
+# ROC
+# Model1
+pred1 <- prediction(results1$Predicted1, results1$Observed)
+perf1 <- performance(pred1, "tpr", "fpr" )
+plot(perf1, colorize = T, main = "Awakening Cortisol (Model 1 Random Forest)")
+# AUC
+performance(pred1, "auc")@y.values
+# opt cut
+print(opt.cut(perf1, pred1))
+
+# Model2
+pred2 <- prediction(results2$Predicted2, results2$Observed)
+perf2 <- performance(pred2, "tpr", "fpr" )
+plot(perf2, colorize = T, main = "Awakening Cortisol (Model 2 Random Forest)")
+# AUC
+performance(pred2, "auc")@y.values
+# opt cut
+print(opt.cut(perf2, pred2))
+```
+
+### Using CpG predictors in the combined sample
+
+Prepare the variables:
+```{r, message = F, warning = F}
+# Read in the data and prepare for cross validation
+d_d <- merge(plot_set1save, plot_set2save[-c(2:6)], by = "id")[, c(1:12)]
+d_d$sex <- as.factor(d_d$sex)
+d_d$round <- as.factor(d_d$round)
+d_d$age <- as.numeric(d_d$age)
+d_d$cv_group <- 1:length(d_d$id)
+dim(d_d)
+```
+
+#### Leave-One-Out 
+
+##### Awakening Cortisol (Continuous):
+
+```{r, message = F, warning = F}
+d_b <- d_d %>%
+  dplyr::select(-one_of(c("id", "meanNCortB")))
+
+# Prepare for cv
+cv_results1 <- array(0,c(0,2))
+colnames(cv_results1) <- c("Observed","Predicted1")
+cv_results2 <- array(0,c(0,2))
+colnames(cv_results2) <- c("Observed","Predicted2")
+
+# Begin cv
+for (i in 1:length(d_b$cv_group))
+{
+  # allocate sample to the test and training sets
+  data_train <- d_b[d_b$cv_group != i, ]
+  data_test <- d_b[d_b$cv_group == i, ]
+  # multiple linear regression
+  fit1 <- glm(meanNCortW ~ sex + age + round, data = data_train)
+  fit2 <- glm(meanNCortW ~ .-cv_group, data = data_train)
+  
+  # predict meanNCortW on test set (cv_group == i)
+  cv_results1 <- rbind(cv_results1,
+                       data.frame(Observed = data_test$meanNCortW,
+                                  Predicted1 = predict(fit1, data_test)))
+  cv_results2 <- rbind(cv_results2,
+                       data.frame(Observed = data_test$meanNCortW,
+                                  Predicted2 = predict(fit2, data_test)))
+}
+
+# Graph: predicted vs. observed
+# Model1
+r2 <- format(summary(lm(Predicted1 ~ Observed,
+                       cv_results1))$r.squared,
+            digits = 3)
+p <- ggplot(data = cv_results1,
+            aes(y = Predicted1,
+                x = Observed))
+p + geom_smooth(method = "lm") +
+  geom_point() + 
+  coord_fixed() +
+  theme_classic() +
+  labs(title = "Awakening Cortisol (Model 1)", 
+       subtitle = bquote(italic(r)^2 == .(r2)),
+         x = "Observed Values", 
+         y = "Predicted Values") 
+
+# Model2
+r2 <- format(summary(lm(Predicted2 ~ Observed,
+                       cv_results2))$r.squared,
+            digits = 3)
+q <- ggplot(data = cv_results2,
+            aes(y = Predicted2,
+                x = Observed))
+q + geom_smooth(method = "lm") +
+  geom_point() + 
+  coord_fixed() +   
+  theme_classic() +
+  labs(title = "Awakening Cortisol (Model 2)", 
+       subtitle = bquote(italic(r)^2 == .(r2)),
+         x = "Observed Values", 
+         y = "Predicted Values")
+```
+
+##### Awakening Cortisol (Dichotomous, Logistic Regression):
+
+```{r, message = F, warning = F}
+d_bb <- d_b
+d_bb$meanNCortW <- factor(d_bb$meanNCortW >= median(d_bb$meanNCortW))
+
+cv_results1 <- array(0,c(0,2))
+colnames(cv_results1) <- c("Observed","Predicted1")
+cv_results2 <- array(0,c(0,2))
+colnames(cv_results2) <- c("Observed","Predicted2")
+
+# Begin cv
+for (i in 1:length(d_bb$cv_group))
+{
+  # allocate sample to the test and training sets
+  data_train <- d_bb[d_bb$cv_group != i, ]
+  data_test <- d_bb[d_bb$cv_group == i, ]
+  # logistic regression
+  fit1 <- glm(meanNCortW ~ sex + age + round, data = data_train, 
+              family = "binomial")
+  fit2 <- glm(meanNCortW ~ .-cv_group, data = data_train,
+              family = "binomial")
+  
+  # predict meanNCortW on test set (cv_group == i)
+  cv_results1 <- rbind(cv_results1,
+                       data.frame(Observed = data_test$meanNCortW,
+                                  Predicted1 = predict(fit1, data_test, 
+                                                       type = "response")))
+  cv_results2 <- rbind(cv_results2,
+                       data.frame(Observed = data_test$meanNCortW,
+                                  Predicted2 = predict(fit2, data_test,
+                                                       type = "response")))
+}
+
+# ROC
+# Model1
+pred1 <- prediction(cv_results1$Predicted1, cv_results1$Observed)
+perf1 <- performance(pred1, "tpr", "fpr" )
+plot(perf1, colorize = T, main = "Awakening Cortisol (Model 1 Logistic Regression)")
+# AUC
+performance(pred1, "auc")@y.values
+# opt cut
+print(opt.cut(perf1, pred1))
+
+# Model2
+pred2 <- prediction(cv_results2$Predicted2, cv_results2$Observed)
+perf2 <- performance(pred2, "tpr", "fpr" )
+plot(perf2, colorize = T, main = "Awakening Cortisol (Model 2 Logistic Regression)")
+# AUC
+performance(pred2, "auc")@y.values
+# opt cut
+print(opt.cut(perf2, pred2))
+```
+
+##### Awakening Cortisol (Dichotomous, Random Forest):
+
+```{r, message = F, warning = F}
+d_bb <- d_b
+d_bb$meanNCortW <- factor(d_bb$meanNCortW >= median(d_bb$meanNCortW))
+
+cv_results1 <- array(0,c(0,2))
+colnames(cv_results1) <- c("Observed","Predicted1")
+cv_results2 <- array(0,c(0,2))
+colnames(cv_results2) <- c("Observed","Predicted2")
+
+# Begin cv
+set.seed(2)
+for (i in 1:length(d_bb$cv_group))
+{
+  # allocate sample to the test and training sets
+  data_train <- d_bb[d_bb$cv_group != i, ]
+  data_test <- d_bb[d_bb$cv_group == i, ]
+  # random forest
+  fit1 <- randomForest(meanNCortW ~ sex + age + round, data = data_train, 
+                       ntree = 500, mtry = 2)
+  fit2 <- randomForest(meanNCortW ~ .-cv_group, data = data_train, 
+                       ntree = 500, mtry = 4)
+  
+  # predict meanNCortW on test set (cv_group == i)
+  cv_results1 <- rbind(cv_results1,
+                       data.frame(Observed = data_test$meanNCortW,
+                                  Predicted1 = predict(fit1, data_test, 
+                                                       type = "prob")[, 2]))
+  cv_results2 <- rbind(cv_results2,
+                       data.frame(Observed = data_test$meanNCortW,
+                                  Predicted2 = predict(fit2, data_test,
+                                                       type = "prob")[, 2]))
+}
+
+# Classification error rate
+# mean(cv_results1$Observed == cv_results1$Predicted1)
+# mean(cv_results2$Observed == cv_results2$Predicted2)
+
+# ROC
+# Model1
+pred1 <- prediction(cv_results1$Predicted1, cv_results1$Observed)
+perf1 <- performance(pred1, "tpr", "fpr" )
+plot(perf1, colorize = T, main = "Awakening Cortisol (Model 1 Random Forest)")
+# AUC
+performance(pred1, "auc")@y.values
+# opt cut
+print(opt.cut(perf1, pred1))
+
+# Model2
+pred2 <- prediction(cv_results2$Predicted2, cv_results2$Observed)
+perf2 <- performance(pred2, "tpr", "fpr" )
+plot(perf2, colorize = T, main = "Awakening Cortisol (Model 2 Random Forest)")
+# AUC
+performance(pred2, "auc")@y.values
+# opt cut
+print(opt.cut(perf2, pred2))
+```
+
+#### All Samples (n = 71)
+
+##### Awakening Cortisol (Continuous):
+
+```{r, message = F, warning = F}
+d_b <- d_d %>%
+  dplyr::select(-one_of(c("id", "cv_group", "meanNCortB")))
+
+# Prepare for prediction
+results1 <- array(0,c(0,2))
+colnames(results1) <- c("Observed","Predicted1")
+results2 <- array(0,c(0,2))
+colnames(results2) <- c("Observed","Predicted2")
+
+# Begin prediction
+  # multiple linear regression
+  fit1 <- glm(meanNCortW ~ sex + age + round, data = d_b)
+  fit2 <- glm(meanNCortW ~ . , data = d_b)
+  
+  # predict meanNCortW
+  results1 <- rbind(results1,
+                    data.frame(Observed = d_b$meanNCortW,
+                               Predicted1 = predict(fit1, d_b)))
+  results2 <- rbind(results2,
+                    data.frame(Observed = d_b$meanNCortW,
+                               Predicted2 = predict(fit2, d_b)))
+
+# Graph: predicted vs. observed
+# Model1
+r2 <- format(summary(lm(Predicted1 ~ Observed,
+                       results1))$r.squared,
+            digits = 3)
+p <- ggplot(data = results1,
+            aes(y = Predicted1,
+                x = Observed))
+p + geom_smooth(method = "lm") +
+  geom_point() + 
+  coord_fixed() +
+  theme_classic() +
+  labs(title = "Awakening Cortisol (Model 1)", 
+       subtitle = bquote(italic(r)^2 == .(r2)),
+         x = "Observed Values", 
+         y = "Predicted Values") 
+
+# Model2
+r2 <- format(summary(lm(Predicted2 ~ Observed,
+                       results2))$r.squared,
+            digits = 3)
+q <- ggplot(data = results2,
+            aes(y = Predicted2,
+                x = Observed))
+q + geom_smooth(method = "lm") +
+  geom_point() + 
+  coord_fixed() +   
+  theme_classic() +
+  labs(title = "Awakening Cortisol (Model 2)", 
+       subtitle = bquote(italic(r)^2 == .(r2)),
+         x = "Observed Values", 
+         y = "Predicted Values")
+```
+
+##### Awakening Cortisol (Dichotomous, Logistic Regression):
+
+```{r, message = F, warning = F}
+d_bb <- d_b
+d_bb$meanNCortW <- factor(d_bb$meanNCortW >= median(d_bb$meanNCortW))
+
+results1 <- array(0,c(0,2))
+colnames(results1) <- c("Observed","Predicted1")
+results2 <- array(0,c(0,2))
+colnames(results2) <- c("Observed","Predicted2")
+
+# Begin prediction
+  # logistic regression
+  fit1 <- glm(meanNCortW ~ sex + age + round, data = d_bb, 
+              family = "binomial")
+  fit2 <- glm(meanNCortW ~ . , data = d_bb,
+              family = "binomial")
+  
+  # predict meanNCortW
+  results1 <- rbind(results1,
+                    data.frame(Observed = d_bb$meanNCortW,
+                               Predicted1 = predict(fit1, d_bb, 
+                                                    type = "response")))
+  results2 <- rbind(results2,
+                    data.frame(Observed = d_bb$meanNCortW,
+                               Predicted2 = predict(fit2, d_bb,
+                                                    type = "response")))
+
+# ROC
+# Model1
+pred1 <- prediction(results1$Predicted1, results1$Observed)
+perf1 <- performance(pred1, "tpr", "fpr" )
+plot(perf1, colorize = T, main = "Awakening Cortisol (Model 1 Logistic Regression)")
+# AUC
+performance(pred1, "auc")@y.values
+# opt cut
+print(opt.cut(perf1, pred1))
+
+# Model2
+pred2 <- prediction(results2$Predicted2, results2$Observed)
+perf2 <- performance(pred2, "tpr", "fpr" )
+plot(perf2, colorize = T, main = "Awakening Cortisol (Model 2 Logistic Regression)")
+# AUC
+performance(pred2, "auc")@y.values
+# opt cut
+print(opt.cut(perf2, pred2))
+```
+
+##### Awakening Cortisol (Dichotomous, Random Forest):
+
+```{r, message = F, warning = F}
+d_bb <- d_b
+d_bb$meanNCortW <- factor(d_bb$meanNCortW >= median(d_bb$meanNCortW))
+
+results1 <- array(0,c(0,2))
+colnames(results1) <- c("Observed","Predicted1")
+results2 <- array(0,c(0,2))
+colnames(results2) <- c("Observed","Predicted2")
+
+# Begin prediction
+  # random forest
+set.seed(2)
+  fit1 <- randomForest(meanNCortW ~ sex + age + round, data = d_bb, 
+                       ntree = 500, mtry = 2, importance = T)
+  fit2 <- randomForest(meanNCortW ~ . , data = d_bb, 
+                       ntree = 500, mtry = 4, importance = T)
+  
+  # predict meanNCortW on test set
+  results1 <- rbind(results1,
+                       data.frame(Observed = d_bb$meanNCortW,
+                                  Predicted1 = predict(fit1, d_bb, 
+                                                       type = "prob")[, 2]))
+  results2 <- rbind(results2,
+                       data.frame(Observed = d_bb$meanNCortW,
+                                  Predicted2 = predict(fit2, d_bb,
+                                                       type = "prob")[, 2]))
+  
+varImpPlot(fit1, main = "Awakening Cortisol (Model 1 Random Forest)")
+varImpPlot(fit2, main = "Awakening Cortisol (Model 2 Random Forest)")
+
+# Classification error rate
+# mean(results1$Observed == results1$Predicted1)
+# mean(results2$Observed == results2$Predicted2)
+
+# ROC
+# Model1
+pred1 <- prediction(results1$Predicted1, results1$Observed)
+perf1 <- performance(pred1, "tpr", "fpr" )
+plot(perf1, colorize = T, main = "Awakening Cortisol (Model 1 Random Forest)")
+# AUC
+performance(pred1, "auc")@y.values
+# opt cut
+print(opt.cut(perf1, pred1))
+
+# Model2
+pred2 <- prediction(results2$Predicted2, results2$Observed)
+perf2 <- performance(pred2, "tpr", "fpr" )
+plot(perf2, colorize = T, main = "Awakening Cortisol (Model 2 Random Forest)")
+# AUC
+performance(pred2, "auc")@y.values
+# opt cut
+print(opt.cut(perf2, pred2))
+```
+
+### Using DEG predictors in the combined sample
+
+Prepare the variables:
+```{r, message = F, warning = F}
+# Read in the data and prepare for cross validation
+d_d <- merge(plot_set1save, plot_set2save[-c(2:6)], by = "id")[, c(1:6, 13:21)]
+d_d$sex <- as.factor(d_d$sex)
+d_d$round <- as.factor(d_d$round)
+d_d$age <- as.numeric(d_d$age)
+d_d$cv_group <- 1:length(d_d$id)
+dim(d_d)
+```
+
+#### Leave-One-Out 
+
+##### Awakening Cortisol (Continuous):
+
+```{r, message = F, warning = F}
+d_b <- d_d %>%
+  dplyr::select(-one_of(c("id", "meanNCortB")))
+
+# Prepare for cv
+cv_results1 <- array(0,c(0,2))
+colnames(cv_results1) <- c("Observed","Predicted1")
+cv_results2 <- array(0,c(0,2))
+colnames(cv_results2) <- c("Observed","Predicted2")
+
+# Begin cv
+for (i in 1:length(d_b$cv_group))
+{
+  # allocate sample to the test and training sets
+  data_train <- d_b[d_b$cv_group != i, ]
+  data_test <- d_b[d_b$cv_group == i, ]
+  # multiple linear regression
+  fit1 <- glm(meanNCortW ~ sex + age + round, data = data_train)
+  fit2 <- glm(meanNCortW ~ .-cv_group, data = data_train)
+  
+  # predict meanNCortW on test set (cv_group == i)
+  cv_results1 <- rbind(cv_results1,
+                       data.frame(Observed = data_test$meanNCortW,
+                                  Predicted1 = predict(fit1, data_test)))
+  cv_results2 <- rbind(cv_results2,
+                       data.frame(Observed = data_test$meanNCortW,
+                                  Predicted2 = predict(fit2, data_test)))
+}
+
+# Graph: predicted vs. observed
+# Model1
+r2 <- format(summary(lm(Predicted1 ~ Observed,
+                       cv_results1))$r.squared,
+            digits = 3)
+p <- ggplot(data = cv_results1,
+            aes(y = Predicted1,
+                x = Observed))
+p + geom_smooth(method = "lm") +
+  geom_point() + 
+  coord_fixed() +
+  theme_classic() +
+  labs(title = "Awakening Cortisol (Model 1)", 
+       subtitle = bquote(italic(r)^2 == .(r2)),
+         x = "Observed Values", 
+         y = "Predicted Values") 
+
+# Model2
+r2 <- format(summary(lm(Predicted2 ~ Observed,
+                       cv_results2))$r.squared,
+            digits = 3)
+q <- ggplot(data = cv_results2,
+            aes(y = Predicted2,
+                x = Observed))
+q + geom_smooth(method = "lm") +
+  geom_point() + 
+  coord_fixed() +   
+  theme_classic() +
+  labs(title = "Awakening Cortisol (Model 2)", 
+       subtitle = bquote(italic(r)^2 == .(r2)),
+         x = "Observed Values", 
+         y = "Predicted Values")
+```
+
+##### Awakening Cortisol (Dichotomous, Logistic Regression):
+
+```{r, message = F, warning = F}
+d_bb <- d_b
+d_bb$meanNCortW <- factor(d_bb$meanNCortW >= median(d_bb$meanNCortW))
+
+cv_results1 <- array(0,c(0,2))
+colnames(cv_results1) <- c("Observed","Predicted1")
+cv_results2 <- array(0,c(0,2))
+colnames(cv_results2) <- c("Observed","Predicted2")
+
+# Begin cv
+for (i in 1:length(d_bb$cv_group))
+{
+  # allocate sample to the test and training sets
+  data_train <- d_bb[d_bb$cv_group != i, ]
+  data_test <- d_bb[d_bb$cv_group == i, ]
+  # logistic regression
+  fit1 <- glm(meanNCortW ~ sex + age + round, data = data_train, 
+              family = "binomial")
+  fit2 <- glm(meanNCortW ~ .-cv_group, data = data_train,
+              family = "binomial")
+  
+  # predict meanNCortW on test set (cv_group == i)
+  cv_results1 <- rbind(cv_results1,
+                       data.frame(Observed = data_test$meanNCortW,
+                                  Predicted1 = predict(fit1, data_test, 
+                                                       type = "response")))
+  cv_results2 <- rbind(cv_results2,
+                       data.frame(Observed = data_test$meanNCortW,
+                                  Predicted2 = predict(fit2, data_test,
+                                                       type = "response")))
+}
+
+# ROC
+# Model1
+pred1 <- prediction(cv_results1$Predicted1, cv_results1$Observed)
+perf1 <- performance(pred1, "tpr", "fpr" )
+plot(perf1, colorize = T, main = "Awakening Cortisol (Model 1 Logistic Regression)")
+# AUC
+performance(pred1, "auc")@y.values
+# opt cut
+print(opt.cut(perf1, pred1))
+
+# Model2
+pred2 <- prediction(cv_results2$Predicted2, cv_results2$Observed)
+perf2 <- performance(pred2, "tpr", "fpr" )
+plot(perf2, colorize = T, main = "Awakening Cortisol (Model 2 Logistic Regression)")
+# AUC
+performance(pred2, "auc")@y.values
+# opt cut
+print(opt.cut(perf2, pred2))
+```
+
+##### Awakening Cortisol (Dichotomous, Random Forest):
+
+```{r, message = F, warning = F}
+d_bb <- d_b
+d_bb$meanNCortW <- factor(d_bb$meanNCortW >= median(d_bb$meanNCortW))
+
+cv_results1 <- array(0,c(0,2))
+colnames(cv_results1) <- c("Observed","Predicted1")
+cv_results2 <- array(0,c(0,2))
+colnames(cv_results2) <- c("Observed","Predicted2")
+
+# Begin cv
+set.seed(2)
+for (i in 1:length(d_bb$cv_group))
+{
+  # allocate sample to the test and training sets
+  data_train <- d_bb[d_bb$cv_group != i, ]
+  data_test <- d_bb[d_bb$cv_group == i, ]
+  # random forest
+  fit1 <- randomForest(meanNCortW ~ sex + age + round, data = data_train, 
+                       ntree = 500, mtry = 2)
+  fit2 <- randomForest(meanNCortW ~ .-cv_group, data = data_train, 
+                       ntree = 500, mtry = 4)
+  
+  # predict meanNCortW on test set (cv_group == i)
+  cv_results1 <- rbind(cv_results1,
+                       data.frame(Observed = data_test$meanNCortW,
+                                  Predicted1 = predict(fit1, data_test, 
+                                                       type = "prob")[, 2]))
+  cv_results2 <- rbind(cv_results2,
+                       data.frame(Observed = data_test$meanNCortW,
+                                  Predicted2 = predict(fit2, data_test,
+                                                       type = "prob")[, 2]))
+}
+
+# Classification error rate
+# mean(cv_results1$Observed == cv_results1$Predicted1)
+# mean(cv_results2$Observed == cv_results2$Predicted2)
+
+# ROC
+# Model1
+pred1 <- prediction(cv_results1$Predicted1, cv_results1$Observed)
+perf1 <- performance(pred1, "tpr", "fpr" )
+plot(perf1, colorize = T, main = "Awakening Cortisol (Model 1 Random Forest)")
+# AUC
+performance(pred1, "auc")@y.values
+# opt cut
+print(opt.cut(perf1, pred1))
+
+# Model2
+pred2 <- prediction(cv_results2$Predicted2, cv_results2$Observed)
+perf2 <- performance(pred2, "tpr", "fpr" )
+plot(perf2, colorize = T, main = "Awakening Cortisol (Model 2 Random Forest)")
+# AUC
+performance(pred2, "auc")@y.values
+# opt cut
+print(opt.cut(perf2, pred2))
+```
+
+#### All Samples (n = 71)
+
+##### Awakening Cortisol (Continuous):
+
+```{r, message = F, warning = F}
+d_b <- d_d %>%
+  dplyr::select(-one_of(c("id", "cv_group", "meanNCortB")))
+
+# Prepare for prediction
+results1 <- array(0,c(0,2))
+colnames(results1) <- c("Observed","Predicted1")
+results2 <- array(0,c(0,2))
+colnames(results2) <- c("Observed","Predicted2")
+
+# Begin prediction
+  # multiple linear regression
+  fit1 <- glm(meanNCortW ~ sex + age + round, data = d_b)
+  fit2 <- glm(meanNCortW ~ . , data = d_b)
+  
+  # predict meanNCortW
+  results1 <- rbind(results1,
+                    data.frame(Observed = d_b$meanNCortW,
+                               Predicted1 = predict(fit1, d_b)))
+  results2 <- rbind(results2,
+                    data.frame(Observed = d_b$meanNCortW,
+                               Predicted2 = predict(fit2, d_b)))
+
+# Graph: predicted vs. observed
+# Model1
+r2 <- format(summary(lm(Predicted1 ~ Observed,
+                       results1))$r.squared,
+            digits = 3)
+p <- ggplot(data = results1,
+            aes(y = Predicted1,
+                x = Observed))
+p + geom_smooth(method = "lm") +
+  geom_point() + 
+  coord_fixed() +
+  theme_classic() +
+  labs(title = "Awakening Cortisol (Model 1)", 
+       subtitle = bquote(italic(r)^2 == .(r2)),
+         x = "Observed Values", 
+         y = "Predicted Values") 
+
+# Model2
+r2 <- format(summary(lm(Predicted2 ~ Observed,
+                       results2))$r.squared,
+            digits = 3)
+q <- ggplot(data = results2,
+            aes(y = Predicted2,
+                x = Observed))
+q + geom_smooth(method = "lm") +
+  geom_point() + 
+  coord_fixed() +   
+  theme_classic() +
+  labs(title = "Awakening Cortisol (Model 2)", 
+       subtitle = bquote(italic(r)^2 == .(r2)),
+         x = "Observed Values", 
+         y = "Predicted Values")
+```
+
+##### Awakening Cortisol (Dichotomous, Logistic Regression):
+
+```{r, message = F, warning = F}
+d_bb <- d_b
+d_bb$meanNCortW <- factor(d_bb$meanNCortW >= median(d_bb$meanNCortW))
+
+results1 <- array(0,c(0,2))
+colnames(results1) <- c("Observed","Predicted1")
+results2 <- array(0,c(0,2))
+colnames(results2) <- c("Observed","Predicted2")
+
+# Begin prediction
+  # logistic regression
+  fit1 <- glm(meanNCortW ~ sex + age + round, data = d_bb, 
+              family = "binomial")
+  fit2 <- glm(meanNCortW ~ . , data = d_bb,
+              family = "binomial")
+  
+  # predict meanNCortW
+  results1 <- rbind(results1,
+                    data.frame(Observed = d_bb$meanNCortW,
+                               Predicted1 = predict(fit1, d_bb, 
+                                                    type = "response")))
+  results2 <- rbind(results2,
+                    data.frame(Observed = d_bb$meanNCortW,
+                               Predicted2 = predict(fit2, d_bb,
+                                                    type = "response")))
+
+# ROC
+# Model1
+pred1 <- prediction(results1$Predicted1, results1$Observed)
+perf1 <- performance(pred1, "tpr", "fpr" )
+plot(perf1, colorize = T, main = "Awakening Cortisol (Model 1 Logistic Regression)")
+# AUC
+performance(pred1, "auc")@y.values
+# opt cut
+print(opt.cut(perf1, pred1))
+
+# Model2
+pred2 <- prediction(results2$Predicted2, results2$Observed)
+perf2 <- performance(pred2, "tpr", "fpr" )
+plot(perf2, colorize = T, main = "Awakening Cortisol (Model 2 Logistic Regression)")
+# AUC
+performance(pred2, "auc")@y.values
+# opt cut
+print(opt.cut(perf2, pred2))
+```
+
+##### Awakening Cortisol (Dichotomous, Random Forest):
+
+```{r, message = F, warning = F}
+d_bb <- d_b
+d_bb$meanNCortW <- factor(d_bb$meanNCortW >= median(d_bb$meanNCortW))
+
+results1 <- array(0,c(0,2))
+colnames(results1) <- c("Observed","Predicted1")
+results2 <- array(0,c(0,2))
+colnames(results2) <- c("Observed","Predicted2")
+
+# Begin prediction
+  # random forest
+set.seed(2)
+  fit1 <- randomForest(meanNCortW ~ sex + age + round, data = d_bb, 
+                       ntree = 500, mtry = 2, importance = T)
+  fit2 <- randomForest(meanNCortW ~ . , data = d_bb, 
+                       ntree = 500, mtry = 4, importance = T)
+  
+  # predict meanNCortW on test set
+  results1 <- rbind(results1,
+                       data.frame(Observed = d_bb$meanNCortW,
+                                  Predicted1 = predict(fit1, d_bb, 
+                                                       type = "prob")[, 2]))
+  results2 <- rbind(results2,
+                       data.frame(Observed = d_bb$meanNCortW,
+                                  Predicted2 = predict(fit2, d_bb,
+                                                       type = "prob")[, 2]))
+  
+varImpPlot(fit1, main = "Awakening Cortisol (Model 1 Random Forest)")
+varImpPlot(fit2, main = "Awakening Cortisol (Model 2 Random Forest)")
+
+# Classification error rate
+# mean(results1$Observed == results1$Predicted1)
+# mean(results2$Observed == results2$Predicted2)
+
+# ROC
+# Model1
+pred1 <- prediction(results1$Predicted1, results1$Observed)
+perf1 <- performance(pred1, "tpr", "fpr" )
+plot(perf1, colorize = T, main = "Awakening Cortisol (Model 1 Random Forest)")
+# AUC
+performance(pred1, "auc")@y.values
+# opt cut
+print(opt.cut(perf1, pred1))
+
+# Model2
+pred2 <- prediction(results2$Predicted2, results2$Observed)
+perf2 <- performance(pred2, "tpr", "fpr" )
+plot(perf2, colorize = T, main = "Awakening Cortisol (Model 2 Random Forest)")
+# AUC
+performance(pred2, "auc")@y.values
+# opt cut
+print(opt.cut(perf2, pred2))
+```
