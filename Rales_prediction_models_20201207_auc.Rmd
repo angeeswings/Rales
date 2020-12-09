@@ -1,0 +1,667 @@
+---
+title: Rales Prediction Addition - Getting Bootstrapped AUC CIs
+author: "Yian (Angela) Lin"
+date: "Dec 7th, 2020"
+output:
+  pdf_document:
+    toc: yes
+    toc_depth: '5'
+  word_document:
+    toc: yes
+    toc_depth: '5'
+  html_document:
+    highlight: tango
+    number_sections: no
+    theme: cosmo
+    toc: yes
+    toc_depth: 5
+    toc_float: yes
+fig_width: 5
+fig_height: 5
+---
+
+#### Setup
+
+Read in the file with methylseq data and phenotype variables:
+```{r, message = F, warning = F}
+# library(data.table)
+# Read in Rales
+# d_d <- fread("PredMatrix_CpG_rales_20181220.csv", sep = ",")
+# d_d <- as.data.frame(d_d)
+# d_d$meanNCortB <- d_d$meanNCortB/10
+# d_d$meanNCortW <- d_d$meanNCortW/10
+# d_save <- d_d
+
+# Read in Cushing 
+# d_cushing <- fread("PredMatrix_CpG_cushing_20181220.csv", sep = ",")
+# d_cushing <- as.data.frame(d_cushing)
+```
+
+Choose Rales CpG predictors:
+```{r, message = F, warning = F}
+library(tidyverse)
+library(tidyselect)
+
+# DMR_top_file <- fread("rales_cushing_criteria_DMR_20190228.csv", sep = ",")
+# CpG_set_rales <- as.data.frame(matrix(rep(NA, 36), ncol = 2))
+# colnames(CpG_set_rales) <- c("minCpG", "minAdjPval")
+# DMR_chr <- DMR_top_file$chr
+# DMR_start <- DMR_top_file$start
+# DMR_end <- DMR_top_file$end
+
+# CpG in Rales
+# Rales_unflagged_file <- fread("singlecpg.rales.unflagged_20181104.csv", sep = ",")
+
+# Excluding flagged cpgs in Rales, most significant
+
+# for (i in 1:nrow(DMR_top_file)) {
+#   CpG_min <- Rales_unflagged_file %>%
+#     # CpG in DMR
+#     filter(chr == DMR_chr[i]) %>%
+#     filter(pos >= DMR_start[i]) %>%
+#     filter(pos <= DMR_end[i]) %>%
+#     # for each CpG 
+#     rowwise() %>%
+#     # find the min p.adj
+#     mutate(pval.adj = min(p.night.adj, p.night.tert.adj,
+#                           p.wake.adj, p.wake.tert.adj,
+#                           na.rm = T)) %>%
+#     ungroup() %>%
+#     # Smallest pval.adj
+#     filter(pval.adj == min(pval.adj))
+#   
+#   CpG_min <- as.data.frame(CpG_min)
+#   # CpG predictor
+#   if (nrow(CpG_min) != 0) {
+#     CpG_set_rales[i, 1] <- CpG_min[2]
+#     # CpG pval.adj
+#     CpG_set_rales[i, 2] <- CpG_min[52]
+#   }
+#   if (nrow(CpG_min) > 1) {
+#     print(i)
+#   }
+# }
+
+# Check uniqueness
+# CpG_set_rales <- as.data.frame(distinct(CpG_set_rales, minCpG, minAdjPval))
+# dim(CpG_set_rales)
+
+# Check Rales CpGs flagness to common SNPs
+# CpG_file <- fread("cushing.singleCpG.annotated_in_SNP_20181117.csv", sep = ",")
+# CpG_file[CpG_file$CpG %in% CpG_set_rales$minCpG, c("CpG", "inSNP")]
+
+# Rales CpGs for bedtime and awakening
+load("CpG_set_rales.RData")
+CpG_set1 <- CpG_set_rales
+CpG_set1 <- CpG_set1[c(6:14), ]
+```
+
+Read in the file with expression data and phenotype variables:
+```{r, message = F, warning = F}
+library(data.table)
+Counts <- fread("031318_cpm_Rales_RNA.csv", sep = ",")
+Counts <- as.data.frame(Counts)
+t_Counts <- data.frame(t(Counts[, 2:ncol(Counts)]))
+colnames(t_Counts) <- Counts[, 1]
+# Removing outlier "12-0087"
+t_Counts <- t_Counts[-56, ]
+
+
+d <- fread("rales-mkanalysis-summarygenecounts_utf8.csv", sep = ",")
+d_d <- d[d$id != "12-0085", ]
+d_d <- d_d[d_d$id != "12-0091", ]
+# Removing outlier "12-0087"
+d_d <- d_d[d_d$id != "12-0087", ]
+d_d <- as.data.frame(d_d)
+```
+
+Choose Rales Gene Predictors:
+```{r, message = F, warning = F}
+# library(tidyverse)
+# library(tidyselect)
+
+# Genes
+cortBcont <- fread("052518_cortB_cont_results.csv", sep = ",")
+cortBcont$pheno <- "cortBcont"
+cortBcont$phenoCort <- "cortB"
+cortBdi <- fread("052518_cortB_dich_results.csv", sep = ",")
+cortBdi$pheno <- "cortBdi"
+cortBdi$phenoCort <- "cortB"
+
+cortWcont <- fread("052518_cortW_cont_results.csv", sep = ",")
+cortWcont$pheno <- "cortWcont"
+cortWcont$phenoCort <- "cortW"
+cortWdi <- fread("052518_cortW_dich_results.csv", sep = ",")
+cortWdi$pheno <- "cortWdi"
+cortWdi$phenoCort <- "cortW"
+
+cort <- bind_rows(cortBcont, cortBdi, cortWcont, cortWdi)
+# cortTop001 <- cort[cort$P.Value < 0.01, ]
+# cortTop001Gene <- distinct(cortTop001, V1, phenoCort, .keep_all = T)
+# cortTop001GeneB <- cortTop001Gene %>%
+#   filter(phenoCort == "cortB")
+# 
+# cortTop001GeneW <- cortTop001Gene %>%
+#   filter(phenoCort == "cortW")
+# 
+# Top001 <- intersect(cortTop001GeneB$V1, cortTop001GeneW$V1)
+# Top001
+
+cortTop0005 <- cort[cort$P.Value < 0.005, ]
+cortTop0005Gene <- distinct(cortTop0005, V1, phenoCort, .keep_all = T)
+cortTop0005GeneB <- cortTop0005Gene %>%
+  filter(phenoCort == "cortB")
+
+cortTop0005GeneW <- cortTop0005Gene %>%
+  filter(phenoCort == "cortW")
+
+Top0005 <- intersect(cortTop0005GeneB$V1, cortTop0005GeneW$V1)
+
+# plot_set1 <- cbind(d_d[c("id", "sex", "round", "age",
+#                          "meanNCortB", "meanNCortW")],
+#                    t_Counts[colnames(t_Counts) %in% Top001])
+
+plot_set2 <- cbind(d_d[c("id", "sex", "round", "age",
+                         "meanNCortB", "meanNCortW")],
+                   t_Counts[colnames(t_Counts) %in% Top0005])
+```
+
+# CpG Predictors
+
+```{r, message = F, warning = F}
+# Setup
+# plot_set1 <- cbind(d_d[c("id", "sex", "round", "age", 
+#                    "meanNCortB", "meanNCortW")], 
+#                    d_d[colnames(d_d) %in% CpG_set1$minCpG])
+# dim(plot_set1)
+load("plot_set1_20190315.RData")
+dim(plot_set1)
+
+# List of CpGs with adjusted p-values
+plot_cpg <- CpG_set1[CpG_set1$minCpG %in% colnames(plot_set1), ][order(CpG_set1$minAdjPval), ]
+print(plot_cpg)
+plot_cpg <- plot_cpg[plot_cpg$minAdjPval < 0.01, ]
+print(plot_cpg)
+# nrow(CpG_set1[CpG_set1$minCpG %in% colnames(plot_set1), ])
+plot_set1 <- cbind(plot_set1[, 1:6], plot_set1[plot_cpg$minCpG])
+```
+
+# DEG Predictors
+```{r}
+print(Top0005)
+```
+
+# Bedtime Cortisol Prediction Models
+
+### Using combined CpG and DEG predictors
+
+```{r, message = F, warning = F}
+library(ROCR)
+
+# Read in the data and prepare for cross validation
+plot_set1save <- plot_set1
+plot_set1 <- merge(plot_set1, plot_set2[-c(2:6)], by = "id")
+d_d <- plot_set1
+d_d$sex <- as.factor(d_d$sex)
+d_d$round <- as.factor(d_d$round)
+d_d$age <- as.numeric(d_d$age)
+
+# Bootstrap
+set.seed(2020)
+auc_list1 <- rep(0, 1000)
+auc_list2 <- rep(0, 1000)
+
+d_d_original <- d_d
+for (j in 1:1000) {
+  if (j %% 50 == 0) {
+    print(paste0("INFO: iter ", j))
+  }
+  
+  d_d <- d_d_original[sample(1:nrow(d_d_original), replace = T), ]
+  d_d$cv_group <- 1:length(d_d$id)
+  
+  d_a <- d_d %>%
+    dplyr::select(-one_of(c("id", "meanNCortW")))
+  
+  d_aa <- d_a
+  d_aa$meanNCortB <- factor(d_aa$meanNCortB >= median(d_aa$meanNCortB))
+
+  cv_results1 <- array(0,c(0,2))
+  colnames(cv_results1) <- c("Observed","Predicted1")
+  cv_results2 <- array(0,c(0,2))
+  colnames(cv_results2) <- c("Observed","Predicted2")
+  
+  # Begin cv
+  for (i in 1:length(d_aa$cv_group))
+  {
+    # allocate sample to the test and training sets
+    data_train <- d_aa[d_aa$cv_group != i, ]
+    data_test <- d_aa[d_aa$cv_group == i, ]
+    # logistic regression
+    fit1 <- glm(meanNCortB ~ sex + age + round, data = data_train, 
+                family = "binomial")
+    fit2 <- glm(meanNCortB ~ .-cv_group, data = data_train,
+                family = "binomial")
+    
+    # predict meanNCortB on test set (cv_group == i)
+    cv_results1 <- rbind(cv_results1,
+                         data.frame(Observed = data_test$meanNCortB,
+                                    Predicted1 = predict(fit1, data_test, 
+                                                         type = "response")))
+    cv_results2 <- rbind(cv_results2,
+                         data.frame(Observed = data_test$meanNCortB,
+                                    Predicted2 = predict(fit2, data_test,
+                                                         type = "response")))
+  }
+  
+  # ROC
+  # Model1
+  pred1 <- prediction(cv_results1$Predicted1, cv_results1$Observed)
+  perf1 <- performance(pred1, "tpr", "fpr" )
+  # AUC
+  auc_list1[j] <- performance(pred1, "auc")@y.values
+  
+  # Model2
+  pred2 <- prediction(cv_results2$Predicted2, cv_results2$Observed)
+  perf2 <- performance(pred2, "tpr", "fpr" )
+  # AUC
+  auc_list2[j] <- performance(pred2, "auc")@y.values
+}
+
+# 95% CIs
+quantile(as.numeric(auc_list1), c(0.05, 0.95))
+#        5%       95% 
+# 0.1922345 0.6160877
+quantile(as.numeric(auc_list2), c(0.05, 0.95))
+#        5%       95% 
+# 0.6955330 0.9190476 
+```
+
+
+### Using CpG predictors in the combined sample
+
+```{r, message = F, warning = F}
+# Read in the data and prepare for cross validation
+d_d <- plot_set1[, c(1:12)]
+d_d$sex <- as.factor(d_d$sex)
+d_d$round <- as.factor(d_d$round)
+d_d$age <- as.numeric(d_d$age)
+
+# Bootstrap
+set.seed(2020)
+auc_list3 <- rep(0, 1000)
+auc_list4 <- rep(0, 1000)
+
+d_d_original <- d_d
+for (j in 1:1000) {
+  
+d_d <- d_d_original[sample(1:nrow(d_d_original), replace = T), ]
+d_d$cv_group <- 1:length(d_d$id)
+d_a <- d_d %>%
+  dplyr::select(-one_of(c("id", "meanNCortW")))
+
+d_aa <- d_a
+d_aa$meanNCortB <- factor(d_aa$meanNCortB >= median(d_aa$meanNCortB))
+
+cv_results1 <- array(0,c(0,2))
+colnames(cv_results1) <- c("Observed","Predicted1")
+cv_results2 <- array(0,c(0,2))
+colnames(cv_results2) <- c("Observed","Predicted2")
+
+# Begin cv
+for (i in 1:length(d_aa$cv_group))
+{
+  # allocate sample to the test and training sets
+  data_train <- d_aa[d_aa$cv_group != i, ]
+  data_test <- d_aa[d_aa$cv_group == i, ]
+  # logistic regression
+  fit1 <- glm(meanNCortB ~ sex + age + round, data = data_train, 
+              family = "binomial")
+  fit2 <- glm(meanNCortB ~ .-cv_group, data = data_train,
+              family = "binomial")
+  
+  # predict meanNCortB on test set (cv_group == i)
+  cv_results1 <- rbind(cv_results1,
+                       data.frame(Observed = data_test$meanNCortB,
+                                  Predicted1 = predict(fit1, data_test, 
+                                                       type = "response")))
+  cv_results2 <- rbind(cv_results2,
+                       data.frame(Observed = data_test$meanNCortB,
+                                  Predicted2 = predict(fit2, data_test,
+                                                       type = "response")))
+}
+
+# ROC
+# Model1
+pred1 <- prediction(cv_results1$Predicted1, cv_results1$Observed)
+perf1 <- performance(pred1, "tpr", "fpr" )
+# AUC
+auc_list3[j] <- performance(pred1, "auc")@y.values
+
+# Model2
+pred2 <- prediction(cv_results2$Predicted2, cv_results2$Observed)
+perf2 <- performance(pred2, "tpr", "fpr" )
+# AUC
+auc_list4[j] <- performance(pred2, "auc")@y.values
+}
+
+# 95% CIs
+quantile(as.numeric(auc_list3), c(0.05, 0.95))
+#        5%       95% 
+# 0.1922345 0.6160877 
+quantile(as.numeric(auc_list4), c(0.05, 0.95))
+#        5%       95% 
+# 0.6348916 0.8791733
+```
+
+
+### Using DEG predictors in the combined sample
+
+```{r, message = F, warning = F}
+# Read in the data and prepare for cross validation
+d_d <- plot_set1[, c(1:6, 13:21)]
+d_d$sex <- as.factor(d_d$sex)
+d_d$round <- as.factor(d_d$round)
+d_d$age <- as.numeric(d_d$age)
+
+# Bootstrap
+set.seed(2020)
+auc_list5 <- rep(0, 1000)
+auc_list6 <- rep(0, 1000)
+
+d_d_original <- d_d
+for (j in 1:1000) {
+  
+d_d <- d_d_original[sample(1:nrow(d_d_original), replace = T), ]
+d_d$cv_group <- 1:length(d_d$id)
+
+d_a <- d_d %>%
+  dplyr::select(-one_of(c("id", "meanNCortW")))
+
+d_aa <- d_a
+d_aa$meanNCortB <- factor(d_aa$meanNCortB >= median(d_aa$meanNCortB))
+
+# cv_results1 <- array(0,c(0,2))
+# colnames(cv_results1) <- c("Observed","Predicted1")
+cv_results2 <- array(0,c(0,2))
+colnames(cv_results2) <- c("Observed","Predicted2")
+
+# Begin cv
+for (i in 1:length(d_aa$cv_group))
+{
+  # allocate sample to the test and training sets
+  data_train <- d_aa[d_aa$cv_group != i, ]
+  data_test <- d_aa[d_aa$cv_group == i, ]
+  # logistic regression
+  # fit1 <- glm(meanNCortB ~ sex + age + round, data = data_train, 
+  #             family = "binomial")
+  fit2 <- glm(meanNCortB ~ .-cv_group, data = data_train,
+              family = "binomial")
+  
+  # predict meanNCortB on test set (cv_group == i)
+  # cv_results1 <- rbind(cv_results1,
+  #                      data.frame(Observed = data_test$meanNCortB,
+  #                                 Predicted1 = predict(fit1, data_test, 
+  #                                                      type = "response")))
+  cv_results2 <- rbind(cv_results2,
+                       data.frame(Observed = data_test$meanNCortB,
+                                  Predicted2 = predict(fit2, data_test,
+                                                       type = "response")))
+}
+
+# ROC
+# Model1
+# pred1 <- prediction(cv_results1$Predicted1, cv_results1$Observed)
+# perf1 <- performance(pred1, "tpr", "fpr" )
+# AUC
+# auc_list5[j] <- performance(pred1, "auc")@y.values
+
+# Model2
+pred2 <- prediction(cv_results2$Predicted2, cv_results2$Observed)
+perf2 <- performance(pred2, "tpr", "fpr" )
+# AUC
+auc_list6[j] <- performance(pred2, "auc")@y.values
+}
+
+# 95% CIs
+# quantile(as.numeric(auc_list5), c(0.05, 0.95))
+#        5%       95% 
+# 0.1922345 0.6160877 
+quantile(as.numeric(auc_list6), c(0.05, 0.95))
+#        5%       95% 
+# 0.6316373 0.8710305
+```
+
+# Awakenin Cortisol Prediction Models
+
+### Using combined CpG and DEG predictors
+
+```{r, message = F, warning = F}
+# Read in the data and prepare for cross validation
+d_d <- merge(plot_set1save, plot_set2[-c(2:6)], by = "id")
+d_d$sex <- as.factor(d_d$sex)
+d_d$round <- as.factor(d_d$round)
+d_d$age <- as.numeric(d_d$age)
+
+# Bootstrap
+set.seed(2020)
+auc_list7 <- rep(0, 1000)
+auc_list8 <- rep(0, 1000)
+
+d_d_original <- d_d
+for (j in 1:1000) {
+  
+d_d <- d_d_original[sample(1:nrow(d_d_original), replace = T), ]
+d_d$cv_group <- 1:length(d_d$id)
+
+d_b <- d_d %>%
+  dplyr::select(-one_of(c("id", "meanNCortB")))
+
+d_bb <- d_b
+d_bb$meanNCortW <- factor(d_bb$meanNCortW >= median(d_bb$meanNCortW))
+
+cv_results1 <- array(0,c(0,2))
+colnames(cv_results1) <- c("Observed","Predicted1")
+cv_results2 <- array(0,c(0,2))
+colnames(cv_results2) <- c("Observed","Predicted2")
+
+# Begin cv
+for (i in 1:length(d_bb$cv_group))
+{
+  # allocate sample to the test and training sets
+  data_train <- d_bb[d_bb$cv_group != i, ]
+  data_test <- d_bb[d_bb$cv_group == i, ]
+  # logistic regression
+  fit1 <- glm(meanNCortW ~ sex + age + round, data = data_train, 
+              family = "binomial")
+  fit2 <- glm(meanNCortW ~ .-cv_group, data = data_train,
+              family = "binomial")
+  
+  # predict meanNCortW on test set (cv_group == i)
+  cv_results1 <- rbind(cv_results1,
+                       data.frame(Observed = data_test$meanNCortW,
+                                  Predicted1 = predict(fit1, data_test, 
+                                                       type = "response")))
+  cv_results2 <- rbind(cv_results2,
+                       data.frame(Observed = data_test$meanNCortW,
+                                  Predicted2 = predict(fit2, data_test,
+                                                       type = "response")))
+}
+
+# ROC
+# Model1
+pred1 <- prediction(cv_results1$Predicted1, cv_results1$Observed)
+perf1 <- performance(pred1, "tpr", "fpr" )
+# AUC
+auc_list7[j] <- performance(pred1, "auc")@y.values
+
+# Model2
+pred2 <- prediction(cv_results2$Predicted2, cv_results2$Observed)
+perf2 <- performance(pred2, "tpr", "fpr" )
+# AUC
+auc_list8[j] <- performance(pred2, "auc")@y.values
+}
+
+# 95% CIs
+quantile(as.numeric(auc_list7), c(0.05, 0.95))
+#        5%       95% 
+# 0.2893252 0.6770451 
+quantile(as.numeric(auc_list8), c(0.05, 0.95))
+#        5%       95% 
+# 0.7383991 0.9587302 
+```
+
+
+### Using CpG predictors in the combined sample
+
+```{r, message = F, warning = F}
+# Read in the data and prepare for cross validation
+d_d <- merge(plot_set1save, plot_set2[-c(2:6)], by = "id")[, c(1:12)]
+d_d$sex <- as.factor(d_d$sex)
+d_d$round <- as.factor(d_d$round)
+d_d$age <- as.numeric(d_d$age)
+
+# Bootstrap
+set.seed(2020)
+auc_list9 <- rep(0, 1000)
+auc_list10 <- rep(0, 1000)
+
+d_d_original <- d_d
+for (j in 1:1000) {
+  
+d_d <- d_d_original[sample(1:nrow(d_d_original), replace = T), ]
+d_d$cv_group <- 1:length(d_d$id)
+
+d_b <- d_d %>%
+  dplyr::select(-one_of(c("id", "meanNCortB")))
+
+d_bb <- d_b
+d_bb$meanNCortW <- factor(d_bb$meanNCortW >= median(d_bb$meanNCortW))
+
+cv_results1 <- array(0,c(0,2))
+colnames(cv_results1) <- c("Observed","Predicted1")
+cv_results2 <- array(0,c(0,2))
+colnames(cv_results2) <- c("Observed","Predicted2")
+
+# Begin cv
+for (i in 1:length(d_bb$cv_group))
+{
+  # allocate sample to the test and training sets
+  data_train <- d_bb[d_bb$cv_group != i, ]
+  data_test <- d_bb[d_bb$cv_group == i, ]
+  # logistic regression
+  fit1 <- glm(meanNCortW ~ sex + age + round, data = data_train, 
+              family = "binomial")
+  fit2 <- glm(meanNCortW ~ .-cv_group, data = data_train,
+              family = "binomial")
+  
+  # predict meanNCortW on test set (cv_group == i)
+  cv_results1 <- rbind(cv_results1,
+                       data.frame(Observed = data_test$meanNCortW,
+                                  Predicted1 = predict(fit1, data_test, 
+                                                       type = "response")))
+  cv_results2 <- rbind(cv_results2,
+                       data.frame(Observed = data_test$meanNCortW,
+                                  Predicted2 = predict(fit2, data_test,
+                                                       type = "response")))
+}
+
+# ROC
+# Model1
+pred1 <- prediction(cv_results1$Predicted1, cv_results1$Observed)
+perf1 <- performance(pred1, "tpr", "fpr" )
+# AUC
+auc_list9[j] <- performance(pred1, "auc")@y.values
+
+# Model2
+pred2 <- prediction(cv_results2$Predicted2, cv_results2$Observed)
+perf2 <- performance(pred2, "tpr", "fpr" )
+# AUC
+auc_list10[j] <- performance(pred2, "auc")@y.values
+}
+
+# 95% CIs
+quantile(as.numeric(auc_list9), c(0.05, 0.95))
+#        5%       95% 
+# 0.2893252 0.6770451 
+quantile(as.numeric(auc_list10), c(0.05, 0.95))
+#        5%       95% 
+# 0.4751659 0.7881579 
+```
+
+### Using DEG predictors in the combined sample
+
+```{r, message = F, warning = F}
+# Read in the data and prepare for cross validation
+d_d <- merge(plot_set1save, plot_set2[-c(2:6)], by = "id")[, c(1:6, 13:21)]
+d_d$sex <- as.factor(d_d$sex)
+d_d$round <- as.factor(d_d$round)
+d_d$age <- as.numeric(d_d$age)
+
+# Bootstrap
+set.seed(2020)
+auc_list11 <- rep(0, 1000)
+auc_list12 <- rep(0, 1000)
+
+d_d_original <- d_d
+for (j in 1:1000) {
+  
+d_d <- d_d_original[sample(1:nrow(d_d_original), replace = T), ]
+d_d$cv_group <- 1:length(d_d$id)
+
+d_b <- d_d %>%
+  dplyr::select(-one_of(c("id", "meanNCortB")))
+
+d_bb <- d_b
+d_bb$meanNCortW <- factor(d_bb$meanNCortW >= median(d_bb$meanNCortW))
+
+# cv_results1 <- array(0,c(0,2))
+# colnames(cv_results1) <- c("Observed","Predicted1")
+cv_results2 <- array(0,c(0,2))
+colnames(cv_results2) <- c("Observed","Predicted2")
+
+# Begin cv
+for (i in 1:length(d_bb$cv_group))
+{
+  # allocate sample to the test and training sets
+  data_train <- d_bb[d_bb$cv_group != i, ]
+  data_test <- d_bb[d_bb$cv_group == i, ]
+  # logistic regression
+  # fit1 <- glm(meanNCortW ~ sex + age + round, data = data_train, 
+  #             family = "binomial")
+  fit2 <- glm(meanNCortW ~ .-cv_group, data = data_train,
+              family = "binomial")
+  
+  # predict meanNCortW on test set (cv_group == i)
+  # cv_results1 <- rbind(cv_results1,
+  #                      data.frame(Observed = data_test$meanNCortW,
+  #                                 Predicted1 = predict(fit1, data_test, 
+  #                                                      type = "response")))
+  cv_results2 <- rbind(cv_results2,
+                       data.frame(Observed = data_test$meanNCortW,
+                                  Predicted2 = predict(fit2, data_test,
+                                                       type = "response")))
+}
+
+# ROC
+# Model1
+# pred1 <- prediction(cv_results1$Predicted1, cv_results1$Observed)
+# perf1 <- performance(pred1, "tpr", "fpr" )
+# AUC
+# auc_list11[j] <- performance(pred1, "auc")@y.values
+
+# Model2
+pred2 <- prediction(cv_results2$Predicted2, cv_results2$Observed)
+perf2 <- performance(pred2, "tpr", "fpr" )
+# AUC
+auc_list12[j] <- performance(pred2, "auc")@y.values
+}
+
+# 95% CIs
+# quantile(as.numeric(auc_list11), c(0.05, 0.95))
+#        5%       95% 
+# 0.2893252 0.6770451 
+quantile(as.numeric(auc_list12), c(0.05, 0.95))
+#        5%       95% 
+# 0.7602984 0.9413095 
+```
