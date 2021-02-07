@@ -1,5 +1,6 @@
 # Rales
 ### This is the repository for storing annotated scripts for the Rales project.
+
 #### 01-Methyl_seq_analysis:
 * Scripts for upstream analysis (QC, trimming, alignment, deduplication, methylation calling, extracting on target CpGs, creating R data objects per sample by chromosome).
 * Sub-folder: 12-run_bumphunter - Scripts for downstream bumphunter analysis. 
