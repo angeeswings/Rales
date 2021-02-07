@@ -1,5 +1,5 @@
 ---
-title: Rales Prediction Addition - Getting Bootstrapped AUC CIs
+title: Rales Prediction Addition - Getting Bootstrapped AUC CIs/Calculating AUC CIs with Large Sample Approximation
 author: "Yian (Angela) Lin"
 date: "Dec 7th, 2020"
 output:
@@ -275,6 +275,23 @@ quantile(as.numeric(auc_list1), c(0.05, 0.95))
 quantile(as.numeric(auc_list2), c(0.05, 0.95))
 #        5%       95% 
 # 0.6955330 0.9190476 
+
+# Hanley and McNeil (1982) formula
+HM <- function (auc) {
+  q1 <- auc/(2-auc)
+  q2 <- 2*auc^2/(1+auc)
+  se <- sqrt((auc*(1-auc) + (36-1)*(q1-auc^2) + (35-1)*(q2-auc^2))/(36*35))
+  lower <- auc - qnorm(0.975)*se
+  upper <- auc + qnorm(0.975)*se
+  return(list(lower=lower, upper=upper))
+}
+HM(0.7230159)
+# $lower
+# [1] 0.6048775
+# 
+# $upper
+# [1] 0.8411543
+
 ```
 
 
@@ -352,6 +369,13 @@ quantile(as.numeric(auc_list3), c(0.05, 0.95))
 quantile(as.numeric(auc_list4), c(0.05, 0.95))
 #        5%       95% 
 # 0.6348916 0.8791733
+HM(0.7277778)
+# $lower
+# [1] 0.6103982
+# 
+# $upper
+# [1] 0.8451574
+
 ```
 
 
@@ -430,6 +454,12 @@ auc_list6[j] <- performance(pred2, "auc")@y.values
 quantile(as.numeric(auc_list6), c(0.05, 0.95))
 #        5%       95% 
 # 0.6316373 0.8710305
+HM(0.6761905)
+# $lower
+# [1] 0.5515365
+# 
+# $upper
+# [1] 0.8008445
 ```
 
 # Awakenin Cortisol Prediction Models
@@ -509,6 +539,12 @@ quantile(as.numeric(auc_list7), c(0.05, 0.95))
 quantile(as.numeric(auc_list8), c(0.05, 0.95))
 #        5%       95% 
 # 0.7383991 0.9587302 
+HM(0.7531746)
+# $lower
+# [1] 0.6401593
+# 
+# $upper
+# [1] 0.8661899
 ```
 
 
@@ -587,6 +623,12 @@ quantile(as.numeric(auc_list9), c(0.05, 0.95))
 quantile(as.numeric(auc_list10), c(0.05, 0.95))
 #        5%       95% 
 # 0.4751659 0.7881579 
+HM(0.4674603)
+# $lower
+# [1] 0.3325169
+# 
+# $upper
+# [1] 0.6024037
 ```
 
 ### Using DEG predictors in the combined sample
@@ -664,4 +706,10 @@ auc_list12[j] <- performance(pred2, "auc")@y.values
 quantile(as.numeric(auc_list12), c(0.05, 0.95))
 #        5%       95% 
 # 0.7602984 0.9413095 
+HM(0.7968254)
+# $lower
+# [1] 0.6926483
+# 
+# $upper
+# [1] 0.9010025
 ```
